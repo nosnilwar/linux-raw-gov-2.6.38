@@ -16,7 +16,11 @@ BUILD_INTERRUPT(call_function_single_interrupt,CALL_FUNCTION_SINGLE_VECTOR)
 BUILD_INTERRUPT(irq_move_cleanup_interrupt,IRQ_MOVE_CLEANUP_VECTOR)
 BUILD_INTERRUPT(reboot_interrupt,REBOOT_VECTOR)
 
+#ifdef CONFIG_IPIPE
+.irpc idx, "012"
+#else
 .irpc idx, "01234567"
+#endif
 BUILD_INTERRUPT3(invalidate_interrupt\idx,
 		 (INVALIDATE_TLB_VECTOR_START)+\idx,
 		 smp_invalidate_interrupt)

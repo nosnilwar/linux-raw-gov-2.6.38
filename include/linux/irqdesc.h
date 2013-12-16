@@ -55,6 +55,12 @@ struct irq_desc {
 		};
 	};
 #endif
+#ifdef CONFIG_IPIPE
+	void			(*ipipe_ack)(unsigned int irq,
+					     struct irq_desc *desc);
+	void			(*ipipe_end)(unsigned int irq,
+					     struct irq_desc *desc);
+#endif /* CONFIG_IPIPE */
 
 	struct timer_rand_state *timer_rand_state;
 	unsigned int __percpu	*kstat_irqs;
@@ -131,6 +137,10 @@ static inline int irq_balancing_disabled(unsigned int irq)
 	return desc->status & IRQ_NO_BALANCING_MASK;
 }
 
+irq_flow_handler_t
+__fixup_irq_handler(struct irq_desc *desc, irq_flow_handler_t handle,
+		    int is_chained);
+
 /* caller has locked the irq_desc and both params are valid */
 static inline void __set_irq_handler_unlocked(int irq,
 					      irq_flow_handler_t handler)
@@ -138,6 +148,7 @@ static inline void __set_irq_handler_unlocked(int irq,
 	struct irq_desc *desc;
 
 	desc = irq_to_desc(irq);
+	handler = __fixup_irq_handler(desc, handler, 0);
 	desc->handle_irq = handler;
 }
 #endif

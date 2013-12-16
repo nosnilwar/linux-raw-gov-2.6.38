@@ -15,6 +15,7 @@ config X86_64
 ### Arch settings
 config X86
 	def_bool y
+	select HAVE_IPIPE_HOSTRT if IPIPE
 	select HAVE_AOUT if X86_32
 	select HAVE_READQ
 	select HAVE_WRITEQ
@@ -155,7 +156,7 @@ config GENERIC_CALIBRATE_DELAY
 
 config GENERIC_TIME_VSYSCALL
 	bool
-	default X86_64
+	default X86_64 || IPIPE
 
 config ARCH_HAS_CPU_RELAX
 	def_bool y
@@ -507,6 +508,7 @@ config SCHED_OMIT_FRAME_POINTER
 
 menuconfig PARAVIRT_GUEST
 	bool "Paravirtualized guest support"
+ 	depends on !IPIPE
 	---help---
 	  Say Y here to get to see options related to running Linux under
 	  various hypervisors.  This option alone does not add any kernel code.
@@ -539,6 +541,7 @@ source "arch/x86/lguest/Kconfig"
 
 config PARAVIRT
 	bool "Enable paravirtualization code"
+ 	depends on !IPIPE
 	---help---
 	  This changes the kernel so it can modify itself when it is run
 	  under a hypervisor, potentially improving performance significantly
@@ -779,6 +782,8 @@ config IRQ_TIME_ACCOUNTING
 	  If in doubt, say N here.
 
 source "kernel/Kconfig.preempt"
+
+source "kernel/ipipe/Kconfig"
 
 config X86_UP_APIC
 	bool "Local APIC support on uniprocessors"

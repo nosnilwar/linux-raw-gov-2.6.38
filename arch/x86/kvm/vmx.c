@@ -883,9 +883,11 @@ static void __vmx_load_host_state(struct vcpu_vmx *vmx)
 
 static void vmx_load_host_state(struct vcpu_vmx *vmx)
 {
-	preempt_disable();
+	unsigned long flags;
+
+	ipipe_preempt_disable(flags);
 	__vmx_load_host_state(vmx);
-	preempt_enable();
+	ipipe_preempt_enable(flags);
 }
 
 /*
@@ -1097,6 +1099,7 @@ static void setup_msrs(struct vcpu_vmx *vmx)
 	unsigned long *msr_bitmap;
 
 	vmx_load_host_state(vmx);
+	local_irq_disable_hw_cond();
 	save_nmsrs = 0;
 #ifdef CONFIG_X86_64
 	if (is_long_mode(&vmx->vcpu)) {
@@ -1126,6 +1129,7 @@ static void setup_msrs(struct vcpu_vmx *vmx)
 		move_msr_up(vmx, index, save_nmsrs++);
 
 	vmx->save_nmsrs = save_nmsrs;
+	local_irq_enable_hw_cond();
 
 	if (cpu_has_vmx_msr_bitmap()) {
 		if (is_long_mode(&vmx->vcpu))
@@ -4171,7 +4175,9 @@ static struct kvm_vcpu *vmx_create_vcpu(struct kvm *kvm, unsigned int id)
 	vmx_vcpu_load(&vmx->vcpu, cpu);
 	vmx->vcpu.cpu = cpu;
 	err = vmx_vcpu_setup(vmx);
+	local_irq_disable_hw_cond();
 	vmx_vcpu_put(&vmx->vcpu);
+	local_irq_enable_hw_cond();
 	put_cpu();
 	if (err)
 		goto free_vmcs;

@@ -3572,7 +3572,7 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 
 	clgi();
 
-	local_irq_enable();
+	local_irq_enable_hw();
 
 	asm volatile (
 		"push %%"R"bp; \n\t"
@@ -3653,7 +3653,7 @@ static void svm_vcpu_run(struct kvm_vcpu *vcpu)
 
 	reload_tss(vcpu);
 
-	local_irq_disable();
+	local_irq_disable_hw();
 
 	stgi();
 

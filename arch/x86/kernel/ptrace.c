@@ -19,6 +19,7 @@
 #include <linux/audit.h>
 #include <linux/seccomp.h>
 #include <linux/signal.h>
+#include <linux/unistd.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
 
@@ -1412,6 +1413,10 @@ asmregparm void syscall_trace_leave(struct pt_regs *regs)
 {
 	bool step;
 
+#ifdef CONFIG_IPIPE
+	if (syscall_get_nr(current, regs) >= NR_syscalls)
+		return;
+#endif
 	if (unlikely(current->audit_context))
 		audit_syscall_exit(AUDITSC_RESULT(regs->ax), regs->ax);
 

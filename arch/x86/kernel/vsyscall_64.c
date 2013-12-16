@@ -32,6 +32,7 @@
 #include <linux/cpu.h>
 #include <linux/smp.h>
 #include <linux/notifier.h>
+#include <linux/ipipe_tickdev.h>
 
 #include <asm/vsyscall.h>
 #include <asm/pgtable.h>
@@ -90,6 +91,9 @@ void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
 	vsyscall_gtod_data.wall_to_monotonic = *wtm;
 	vsyscall_gtod_data.wall_time_coarse = __current_kernel_time();
 	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+
+	if (clock == &clocksource_tsc)
+		ipipe_update_hostrt(wall_time, clock);
 }
 
 /* RED-PEN may want to readd seq locking, but then the variable should be

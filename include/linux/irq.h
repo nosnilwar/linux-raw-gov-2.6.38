@@ -195,6 +195,9 @@ struct irq_chip {
 
 	void		(*irq_bus_lock)(struct irq_data *data);
 	void		(*irq_bus_sync_unlock)(struct irq_data *data);
+#ifdef CONFIG_IPIPE
+	void		(*irq_move)(struct irq_data *data);
+#endif /* CONFIG_IPIPE */
 
 	/* Currently used only by UML, might disappear one day.*/
 #ifdef CONFIG_IRQ_RELEASE_METHOD
@@ -343,7 +346,7 @@ extern int set_irq_data(unsigned int irq, void *data);
 extern int set_irq_chip_data(unsigned int irq, void *data);
 extern int set_irq_type(unsigned int irq, unsigned int type);
 extern int set_irq_msi(unsigned int irq, struct msi_desc *entry);
-extern struct irq_data *irq_get_irq_data(unsigned int irq);
+extern struct irq_data *irq_get_irq_data(unsigned int irq) __attribute__((const));
 
 static inline struct irq_chip *get_irq_chip(unsigned int irq)
 {

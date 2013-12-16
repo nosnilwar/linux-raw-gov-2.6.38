@@ -15,6 +15,7 @@
 #include <linux/module.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
+#include <linux/ipipe.h>
 
 #include "internals.h"
 
@@ -505,7 +506,9 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 	irqreturn_t action_ret;
 
 	raw_spin_lock(&desc->lock);
+#ifndef CONFIG_IPIPE
 	mask_ack_irq(desc);
+#endif
 
 	if (unlikely(desc->status & IRQ_INPROGRESS))
 		goto out_unlock;
@@ -572,6 +575,9 @@ handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc)
 		goto out;
 	}
 
+	if (desc->status & IRQ_ONESHOT)
+		mask_irq(desc);
+
 	desc->status |= IRQ_INPROGRESS;
 	desc->status &= ~IRQ_PENDING;
 	raw_spin_unlock(&desc->lock);
@@ -582,8 +588,14 @@ handle_fasteoi_irq(unsigned int irq, struct irq_desc *desc)
 
 	raw_spin_lock(&desc->lock);
 	desc->status &= ~IRQ_INPROGRESS;
+#ifdef CONFIG_IPIPE
+	if (!(desc->status & IRQ_MASKED))
+		desc->irq_data.chip->irq_unmask(&desc->irq_data);
+out:
+#else
 out:
 	desc->irq_data.chip->irq_eoi(&desc->irq_data);
+#endif
 
 	raw_spin_unlock(&desc->lock);
 }
@@ -625,7 +637,9 @@ handle_edge_irq(unsigned int irq, struct irq_desc *desc)
 	kstat_incr_irqs_this_cpu(irq, desc);
 
 	/* Start handling the irq */
+#ifndef CONFIG_IPIPE
 	desc->irq_data.chip->irq_ack(&desc->irq_data);
+#endif
 
 	/* Mark the IRQ currently in progress.*/
 	desc->status |= IRQ_INPROGRESS;
@@ -678,8 +692,10 @@ handle_percpu_irq(unsigned int irq, struct irq_desc *desc)
 
 	kstat_incr_irqs_this_cpu(irq, desc);
 
+#ifndef CONFIG_IPIPE
 	if (desc->irq_data.chip->irq_ack)
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
+#endif /* CONFIG_IPIPE */
 
 	action_ret = handle_IRQ_event(irq, desc->action);
 	if (!noirqdebug)
@@ -688,6 +704,135 @@ handle_percpu_irq(unsigned int irq, struct irq_desc *desc)
 	if (desc->irq_data.chip->irq_eoi)
 		desc->irq_data.chip->irq_eoi(&desc->irq_data);
 }
+
+#ifdef CONFIG_IPIPE
+
+void __ipipe_ack_simple_irq(unsigned irq, struct irq_desc *desc)
+{
+}
+
+void __ipipe_end_simple_irq(unsigned irq, struct irq_desc *desc)
+{
+}
+
+void __ipipe_ack_level_irq(unsigned irq, struct irq_desc *desc)
+{
+	mask_ack_irq(desc);
+}
+
+void __ipipe_end_level_irq(unsigned irq, struct irq_desc *desc)
+{
+	if (desc->irq_data.chip->irq_unmask)
+		desc->irq_data.chip->irq_unmask(&desc->irq_data);
+}
+
+void __ipipe_ack_fasteoi_irq(unsigned irq, struct irq_desc *desc)
+{
+	if (desc->irq_data.chip->irq_eoi)
+		desc->irq_data.chip->irq_eoi(&desc->irq_data);
+}
+
+void __ipipe_end_fasteoi_irq(unsigned irq, struct irq_desc *desc)
+{
+	/*
+	 * Non-requestable IRQs should not be masked in EOI handler.
+	 */
+	if (!(desc->status & IRQ_NOREQUEST))
+		desc->irq_data.chip->irq_unmask(&desc->irq_data);
+}
+
+void __ipipe_ack_edge_irq(unsigned irq, struct irq_desc *desc)
+{
+	desc->irq_data.chip->irq_ack(&desc->irq_data);
+}
+
+void __ipipe_ack_percpu_irq(unsigned irq, struct irq_desc *desc)
+{
+	if (desc->irq_data.chip->irq_ack)
+		desc->irq_data.chip->irq_ack(&desc->irq_data);
+}
+
+void __ipipe_end_percpu_irq(unsigned irq, struct irq_desc *desc)
+{
+	if (desc->irq_data.chip->irq_eoi)
+		desc->irq_data.chip->irq_eoi(&desc->irq_data);
+}
+
+void __ipipe_end_edge_irq(unsigned irq, struct irq_desc *desc)
+{
+}
+
+void __ipipe_ack_bad_irq(unsigned irq, struct irq_desc *desc)
+{
+	static int done;
+
+	handle_bad_irq(irq, desc);
+
+	if (!done) {
+		printk(KERN_WARNING "%s: unknown flow handler for IRQ %d\n",
+		       __FUNCTION__, irq);
+		done = 1;
+	}
+}
+
+void __ipipe_noack_irq(unsigned irq, struct irq_desc *desc)
+{
+}
+
+void __ipipe_noend_irq(unsigned irq, struct irq_desc *desc)
+{
+}
+
+irq_flow_handler_t
+__fixup_irq_handler(struct irq_desc *desc, irq_flow_handler_t handle, int is_chained)
+{
+	if (unlikely(handle == NULL)) {
+		desc->ipipe_ack = &__ipipe_ack_bad_irq;
+		desc->ipipe_end = &__ipipe_noend_irq;
+	} else {
+		if (is_chained) {
+			desc->ipipe_ack = handle;
+			desc->ipipe_end = &__ipipe_noend_irq;
+			handle = __ipipe_noack_irq;
+		} else if (handle == &handle_simple_irq) {
+			desc->ipipe_ack = &__ipipe_ack_simple_irq;
+			desc->ipipe_end = &__ipipe_end_simple_irq;
+		} else if (handle == &handle_level_irq) {
+			desc->ipipe_ack = &__ipipe_ack_level_irq;
+			desc->ipipe_end = &__ipipe_end_level_irq;
+		} else if (handle == &handle_edge_irq) {
+			desc->ipipe_ack = &__ipipe_ack_edge_irq;
+			desc->ipipe_end = &__ipipe_end_edge_irq;
+		} else if (handle == &handle_fasteoi_irq) {
+			desc->ipipe_ack = &__ipipe_ack_fasteoi_irq;
+			desc->ipipe_end = &__ipipe_end_fasteoi_irq;
+		} else if (handle == &handle_percpu_irq) {
+			desc->ipipe_ack = &__ipipe_ack_percpu_irq;
+			desc->ipipe_end = &__ipipe_end_percpu_irq;
+		} else if (get_irq_desc_chip(desc) == &no_irq_chip) {
+			desc->ipipe_ack = &__ipipe_noack_irq;
+			desc->ipipe_end = &__ipipe_noend_irq;
+		} else {
+			desc->ipipe_ack = &__ipipe_ack_bad_irq;
+			desc->ipipe_end = &__ipipe_noend_irq;
+		}
+	}
+
+	/* Suppress intermediate trampoline routine. */
+	ipipe_root_domain->irqs[desc->irq_data.irq].acknowledge = desc->ipipe_ack;
+
+	return handle;
+}
+
+#else /* !CONFIG_IPIPE */
+
+irq_flow_handler_t
+__fixup_irq_handler(struct irq_desc *desc, irq_flow_handler_t handle, int is_chained)
+{
+	return handle;
+}
+
+#endif /* !CONFIG_IPIPE */
 
 void
 __set_irq_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
@@ -719,6 +864,8 @@ __set_irq_handler(unsigned int irq, irq_flow_handler_t handle, int is_chained,
 
 	chip_bus_lock(desc);
 	raw_spin_lock_irqsave(&desc->lock, flags);
+
+	handle = __fixup_irq_handler(desc, handle, is_chained);
 
 	/* Uninstall? */
 	if (handle == handle_bad_irq) {

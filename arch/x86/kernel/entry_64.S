@@ -48,6 +48,7 @@
 #include <asm/unistd.h>
 #include <asm/thread_info.h>
 #include <asm/hw_irq.h>
+#include <asm/ipipe_base.h>
 #include <asm/page_types.h>
 #include <asm/irqflags.h>
 #include <asm/paravirt.h>
@@ -61,6 +62,13 @@
 #define __AUDIT_ARCH_LE	   0x40000000
 
 	.code64
+
+#ifdef CONFIG_IPIPE
+#define PREEMPT_SCHEDULE_IRQ		call __ipipe_preempt_schedule_irq
+#else /* !CONFIG_IPIPE */
+#define PREEMPT_SCHEDULE_IRQ		call preempt_schedule_irq
+#endif /* !CONFIG_IPIPE */
+
 #ifdef CONFIG_FUNCTION_TRACER
 #ifdef CONFIG_DYNAMIC_FTRACE
 ENTRY(mcount)
@@ -326,16 +334,21 @@ ENTRY(save_args)
 	 * moving irq_enter into assembly, which would be too much work)
 	 */
 1:	incl PER_CPU_VAR(irq_count)
+#ifndef CONFIG_IPIPE
 	jne 2f
 	popq_cfi %rax			/* move return address... */
 	mov PER_CPU_VAR(irq_stack_ptr),%rsp
 	EMPTY_FRAME 0
 	pushq_cfi %rbp			/* backlink for unwinder */
 	pushq_cfi %rax			/* ... to the new stack */
+#endif
 	/*
 	 * We entered an interrupt context - irqs are off:
 	 */
-2:	TRACE_IRQS_OFF
+2:
+#ifndef CONFIG_IPIPE
+	TRACE_IRQS_OFF
+#endif
 	ret
 	CFI_ENDPROC
 END(save_args)
@@ -400,6 +413,7 @@ ENTRY(ret_from_fork)
 
 	pushq_cfi kernel_eflags(%rip)
 	popfq_cfi				# reset kernel eflags
+  	ENABLE_INTERRUPTS_HW_COND
 
 	call schedule_tail			# rdi: 'prev' task parameter
 
@@ -475,6 +489,17 @@ ENTRY(system_call_after_swapgs)
 	movq  %rax,ORIG_RAX-ARGOFFSET(%rsp)
 	movq  %rcx,RIP-ARGOFFSET(%rsp)
 	CFI_REL_OFFSET rip,RIP-ARGOFFSET
+#ifdef CONFIG_IPIPE
+	pushq %rdi
+	pushq %rax
+	leaq -(ARGOFFSET-16)(%rsp),%rdi	# regs for handler
+	call	__ipipe_syscall_root_thunk
+	testl %eax, %eax
+	popq %rax
+	popq %rdi
+	js    ret_from_sys_call
+	jnz   sysret_fastexit
+#endif
 	GET_THREAD_INFO(%rcx)
 	testl $_TIF_WORK_SYSCALL_ENTRY,TI_flags(%rcx)
 	jnz tracesys
@@ -504,6 +529,7 @@ sysret_check:
 	 * sysretq will re-enable interrupts:
 	 */
 	TRACE_IRQS_ON
+sysret_fastexit:
 	movq RIP-ARGOFFSET(%rsp),%rcx
 	CFI_REGISTER	rip,rcx
 	RESTORE_ARGS 0,-ARG_SKIP,1
@@ -515,6 +541,8 @@ sysret_check:
 	/* Handle reschedules */
 	/* edx:	work, edi: workmask */
 sysret_careful:
+	testl $(_TIF_SYSCALL_TRACE|_TIF_SYSCALL_AUDIT|_TIF_SECCOMP),%edx
+	jnz ret_from_sys_call_trace
 	bt $TIF_NEED_RESCHED,%edx
 	jnc sysret_signal
 	TRACE_IRQS_ON
@@ -523,6 +551,16 @@ sysret_careful:
 	call schedule
 	popq_cfi %rdi
 	jmp sysret_check
+
+ret_from_sys_call_trace:
+	TRACE_IRQS_ON
+	sti
+	SAVE_REST
+	FIXUP_TOP_OF_STACK %rdi
+	movq %rsp,%rdi
+	LOAD_ARGS ARGOFFSET  /* reload args from stack in case ptrace changed it */
+	RESTORE_REST
+	jmp int_ret_from_sys_call
 
 	/* Handle a signal */
 sysret_signal:
@@ -791,7 +829,29 @@ END(interrupt)
 	CFI_ADJUST_CFA_OFFSET ORIG_RAX-RBP
 	call save_args
 	PARTIAL_FRAME 0
+#ifdef CONFIG_IPIPE_TRACE_IRQSOFF
+	pushq %rbp
+	leaq RIP-8(%rdi), %rbp	# make interrupted address show up in trace
+	pushq %rdi
+	movq ORIG_RAX(%rdi), %rdi	# IRQ number
+	notq %rdi			# ...is inverted, fix up
+	call ipipe_trace_begin
+	popq %rdi
+	popq %rbp
+
 	call \func
+
+	pushq %rbp
+	pushq %rax
+	movq 8-ARGOFFSET+ORIG_RAX(%rbp), %rdi
+	leaq 8-ARGOFFSET+RIP-8(%rbp), %rbp
+	notq %rdi
+	call ipipe_trace_end
+	popq %rax
+	popq %rbp
+#else
+	call \func
+#endif
 	.endm
 
 /*
@@ -804,9 +864,27 @@ END(interrupt)
 	 */
 	.p2align CONFIG_X86_L1_CACHE_SHIFT
 common_interrupt:
+#ifdef CONFIG_IPIPE
+	XCPT_FRAME
+	addq $-0x80,(%rsp)		/* Adjust vector to [-256,-1] range */
+	interrupt *ipipe_irq_handler
+	testl %eax, %eax
+	jnz ret_from_intr
+	decl PER_CPU_VAR(irq_count)
+	leaveq
+	CFI_RESTORE		rbp
+	CFI_DEF_CFA_REGISTER	rsp
+	CFI_ADJUST_CFA_OFFSET	-8
+	addq $8, %rsp
+	CFI_ADJUST_CFA_OFFSET	-8
+	testl $3,CS-ARGOFFSET(%rsp)
+	jz restore_args
+	jmp retint_swapgs_notrace
+#else /* !CONFIG_IPIPE */
 	XCPT_FRAME
 	addq $-0x80,(%rsp)		/* Adjust vector to [-256,-1] range */
 	interrupt do_IRQ
+#endif /* !CONFIG_IPIPE */
 	/* 0(%rsp): old_rsp-ARGOFFSET */
 ret_from_intr:
 	DISABLE_INTERRUPTS(CLBR_NONE)
@@ -821,7 +899,7 @@ ret_from_intr:
 	/* we did not save rbx, restore only from ARGOFFSET */
 	addq $8, %rsp
 	CFI_ADJUST_CFA_OFFSET	-8
-exit_intr:
+ENTRY(exit_intr)
 	GET_THREAD_INFO(%rcx)
 	testl $3,CS-ARGOFFSET(%rsp)
 	je retint_kernel
@@ -841,20 +919,20 @@ retint_check:
 	jnz  retint_careful
 
 retint_swapgs:		/* return to user-space */
+	TRACE_IRQS_IRETQ
 	/*
 	 * The iretq could re-enable interrupts:
 	 */
-	DISABLE_INTERRUPTS(CLBR_ANY)
-	TRACE_IRQS_IRETQ
+retint_swapgs_notrace:
 	SWAPGS
+retint_noswapgs:
 	jmp restore_args
 
 retint_restore_args:	/* return to kernel space */
-	DISABLE_INTERRUPTS(CLBR_ANY)
+	TRACE_IRQS_IRETQ
 	/*
 	 * The iretq could re-enable interrupts:
 	 */
-	TRACE_IRQS_IRETQ
 restore_args:
 	RESTORE_ARGS 0,8,0
 
@@ -934,7 +1012,15 @@ ENTRY(retint_kernel)
 	jnc  retint_restore_args
 	bt   $9,EFLAGS-ARGOFFSET(%rsp)	/* interrupts off? */
 	jnc  retint_restore_args
-	call preempt_schedule_irq
+#ifdef CONFIG_IPIPE
+	/*
+	 * We may have preempted call_softirq before __do_softirq raised or
+	 * after it lowered the preemption counter.
+	 */
+	cmpl $0,PER_CPU_VAR(irq_count)
+	jge  retint_restore_args
+#endif
+	PREEMPT_SCHEDULE_IRQ
 	jmp exit_intr
 #endif
 
@@ -952,11 +1038,29 @@ END(common_interrupt)
 ENTRY(\sym)
 	INTR_FRAME
 	pushq_cfi $~(\num)
+#ifdef CONFIG_IPIPE
+	interrupt *ipipe_irq_handler
+	testl %eax, %eax
+	jnz ret_from_intr
+	decl PER_CPU_VAR(irq_count)
+	leaveq
+	CFI_RESTORE		rbp
+	CFI_DEF_CFA_REGISTER	rsp
+	CFI_ADJUST_CFA_OFFSET	-8
+	addq $8, %rsp
+	CFI_ADJUST_CFA_OFFSET	-8
+	testl $3,CS-ARGOFFSET(%rsp)
+	jz restore_args
+	jmp retint_swapgs_notrace
+	CFI_ENDPROC
+	.endm
+#else /* !CONFIG_IPIPE */
 	interrupt \do_sym
 	jmp ret_from_intr
 	CFI_ENDPROC
 END(\sym)
 .endm
+#endif /* !CONFIG_IPIPE */
 
 #ifdef CONFIG_SMP
 apicinterrupt IRQ_MOVE_CLEANUP_VECTOR \
@@ -975,7 +1079,11 @@ apicinterrupt X86_PLATFORM_IPI_VECTOR \
 	x86_platform_ipi smp_x86_platform_ipi
 
 #ifdef CONFIG_SMP
+#ifdef CONFIG_IPIPE
+.irpc idx, "012"
+#else
 .irpc idx, "01234567"
+#endif
 apicinterrupt (INVALIDATE_TLB_VECTOR_START)+\idx \
 	invalidate_interrupt\idx smp_invalidate_interrupt
 .endr
@@ -1013,7 +1121,7 @@ apicinterrupt IRQ_WORK_VECTOR \
 /*
  * Exception entry points.
  */
-.macro zeroentry sym do_sym
+.macro zeroentry sym do_sym ex_code
 ENTRY(\sym)
 	INTR_FRAME
 	PARAVIRT_ADJUST_EXCEPTION_FRAME
@@ -1024,13 +1132,28 @@ ENTRY(\sym)
 	DEFAULT_FRAME 0
 	movq %rsp,%rdi		/* pt_regs pointer */
 	xorl %esi,%esi		/* no error code */
+#ifdef CONFIG_IPIPE
+	movq $\ex_code,%rdx
+	call __ipipe_handle_exception   /* handle(regs, error_code, ex_code) */
+	TRACE_IRQS_OFF
+	testl %eax, %eax
+	jz error_exit
+	movl %ebx,%eax
+	RESTORE_REST
+	DISABLE_INTERRUPTS(CLBR_NONE)
+	testl %eax,%eax
+	jne retint_noswapgs
+	jmp retint_swapgs_notrace
+#else /* !CONFIG_IPIPE */
+	TRACE_IRQS_OFF
 	call \do_sym
+#endif /* !CONFIG_IPIPE */
 	jmp error_exit		/* %ebx: no swapgs flag */
 	CFI_ENDPROC
 END(\sym)
 .endm
 
-.macro paranoidzeroentry sym do_sym
+.macro paranoidzeroentry sym do_sym ex_code=0
 ENTRY(\sym)
 	INTR_FRAME
 	PARAVIRT_ADJUST_EXCEPTION_FRAME
@@ -1038,17 +1161,32 @@ ENTRY(\sym)
 	subq $ORIG_RAX-R15, %rsp
 	CFI_ADJUST_CFA_OFFSET ORIG_RAX-R15
 	call save_paranoid
-	TRACE_IRQS_OFF
 	movq %rsp,%rdi		/* pt_regs pointer */
+#ifdef CONFIG_IPIPE
+	.if \ex_code
+	movq $\ex_code,%rsi
+	call __ipipe_divert_exception   /* handle(regs, ex_code) */
+	TRACE_IRQS_OFF
+	testl %eax,%eax
+	jnz 1f
+	movq %rsp,%rdi
+	.endif
+#else
+	TRACE_IRQS_OFF
+#endif
 	xorl %esi,%esi		/* no error code */
 	call \do_sym
+#ifdef CONFIG_IPIPE
+	xorl %eax,%eax		/* tell paranoid_exit to propagate the exception */
+1:
+#endif
 	jmp paranoid_exit	/* %ebx: no swapgs flag */
 	CFI_ENDPROC
 END(\sym)
 .endm
 
 #define INIT_TSS_IST(x) PER_CPU_VAR(init_tss) + (TSS_ist + ((x) - 1) * 8)
-.macro paranoidzeroentry_ist sym do_sym ist
+.macro paranoidzeroentry_ist sym do_sym ist ex_code=0
 ENTRY(\sym)
 	INTR_FRAME
 	PARAVIRT_ADJUST_EXCEPTION_FRAME
@@ -1058,16 +1196,29 @@ ENTRY(\sym)
 	call save_paranoid
 	TRACE_IRQS_OFF
 	movq %rsp,%rdi		/* pt_regs pointer */
+#ifdef CONFIG_IPIPE
+	.if \ex_code
+	movq $\ex_code,%rsi
+	call __ipipe_divert_exception   /* handle(regs, ex_code) */
+	testl %eax,%eax
+	jnz 1f
+	movq %rsp,%rdi
+	.endif
+#endif
 	xorl %esi,%esi		/* no error code */
 	subq $EXCEPTION_STKSZ, INIT_TSS_IST(\ist)
 	call \do_sym
 	addq $EXCEPTION_STKSZ, INIT_TSS_IST(\ist)
+#ifdef CONFIG_IPIPE
+	xorl %eax,%eax		/* tell paranoid_exit to propagate the exception */
+1:
+#endif
 	jmp paranoid_exit	/* %ebx: no swapgs flag */
 	CFI_ENDPROC
 END(\sym)
 .endm
 
-.macro errorentry sym do_sym
+.macro errorentry sym do_sym ex_code
 ENTRY(\sym)
 	XCPT_FRAME
 	PARAVIRT_ADJUST_EXCEPTION_FRAME
@@ -1078,14 +1229,29 @@ ENTRY(\sym)
 	movq %rsp,%rdi			/* pt_regs pointer */
 	movq ORIG_RAX(%rsp),%rsi	/* get error code */
 	movq $-1,ORIG_RAX(%rsp)		/* no syscall to restart */
+#ifdef CONFIG_IPIPE
+	movq $\ex_code,%rdx
+	call __ipipe_handle_exception   /* handle(regs, error_code, ex_code) */
+	TRACE_IRQS_OFF
+	testl %eax, %eax
+	jz error_exit
+	movl %ebx,%eax
+	RESTORE_REST
+	DISABLE_INTERRUPTS(CLBR_NONE)
+	testl %eax,%eax
+	jne retint_noswapgs
+	jmp retint_swapgs_notrace
+#else /* !CONFIG_IPIPE */
+	TRACE_IRQS_OFF
 	call \do_sym
+#endif /* !CONFIG_IPIPE */
 	jmp error_exit			/* %ebx: no swapgs flag */
 	CFI_ENDPROC
 END(\sym)
 .endm
 
 	/* error code is on the stack already */
-.macro paranoiderrorentry sym do_sym
+.macro paranoiderrorentry sym do_sym ex_code=0
 ENTRY(\sym)
 	XCPT_FRAME
 	PARAVIRT_ADJUST_EXCEPTION_FRAME
@@ -1095,27 +1261,40 @@ ENTRY(\sym)
 	DEFAULT_FRAME 0
 	TRACE_IRQS_OFF
 	movq %rsp,%rdi			/* pt_regs pointer */
+#ifdef CONFIG_IPIPE
+	.if \ex_code
+	movq $\ex_code,%rsi
+	call __ipipe_divert_exception   /* handle(regs, ex_code) */
+	testl %eax,%eax
+	jnz 1f
+	movq %rsp,%rdi
+	.endif
+#endif
 	movq ORIG_RAX(%rsp),%rsi	/* get error code */
 	movq $-1,ORIG_RAX(%rsp)		/* no syscall to restart */
 	call \do_sym
+#ifdef CONFIG_IPIPE
+	xorl %eax,%eax			/* tell paranoid_exit to propagate the exception */
+1:
+#endif
 	jmp paranoid_exit		/* %ebx: no swapgs flag */
 	CFI_ENDPROC
 END(\sym)
 .endm
 
-zeroentry divide_error do_divide_error
-zeroentry overflow do_overflow
-zeroentry bounds do_bounds
-zeroentry invalid_op do_invalid_op
-zeroentry device_not_available do_device_not_available
+zeroentry divide_error do_divide_error ex_do_divide_error
+zeroentry overflow do_overflow ex_do_overflow
+zeroentry bounds do_bounds ex_do_bounds
+zeroentry invalid_op do_invalid_op ex_do_invalid_op
+zeroentry device_not_available do_device_not_available ex_do_device_not_available
 paranoiderrorentry double_fault do_double_fault
-zeroentry coprocessor_segment_overrun do_coprocessor_segment_overrun
-errorentry invalid_TSS do_invalid_TSS
-errorentry segment_not_present do_segment_not_present
-zeroentry spurious_interrupt_bug do_spurious_interrupt_bug
-zeroentry coprocessor_error do_coprocessor_error
-errorentry alignment_check do_alignment_check
-zeroentry simd_coprocessor_error do_simd_coprocessor_error
+zeroentry coprocessor_segment_overrun do_coprocessor_segment_overrun ex_do_coprocessor_segment_overrun
+errorentry invalid_TSS do_invalid_TSS ex_do_invalid_TSS
+errorentry segment_not_present do_segment_not_present ex_do_segment_not_present
+zeroentry spurious_interrupt_bug do_spurious_interrupt_bug ex_do_spurious_interrupt_bug
+zeroentry coprocessor_error do_coprocessor_error ex_do_coprocessor_error
+errorentry alignment_check do_alignment_check ex_do_alignment_check
+zeroentry simd_coprocessor_error do_simd_coprocessor_error ex_do_simd_coprocessor_error
 
 	/* Reload gs selector with exception handling */
 	/* edi:  new selector */
@@ -1199,15 +1378,19 @@ ENTRY(call_softirq)
 	CFI_REL_OFFSET rbp,0
 	mov  %rsp,%rbp
 	CFI_DEF_CFA_REGISTER rbp
+	DISABLE_INTERRUPTS_HW_COND
 	incl PER_CPU_VAR(irq_count)
 	cmove PER_CPU_VAR(irq_stack_ptr),%rsp
+	ENABLE_INTERRUPTS_HW_COND
 	push  %rbp			# backlink for old unwinder
 	call __do_softirq
+	DISABLE_INTERRUPTS_HW_COND
 	leaveq
 	CFI_RESTORE		rbp
 	CFI_DEF_CFA_REGISTER	rsp
 	CFI_ADJUST_CFA_OFFSET   -8
 	decl PER_CPU_VAR(irq_count)
+	ENABLE_INTERRUPTS_HW_COND
 	ret
 	CFI_ENDPROC
 END(call_softirq)
@@ -1319,16 +1502,16 @@ apicinterrupt XEN_HVM_EVTCHN_CALLBACK \
  */
 	.pushsection .kprobes.text, "ax"
 
-paranoidzeroentry_ist debug do_debug DEBUG_STACK
-paranoidzeroentry_ist int3 do_int3 DEBUG_STACK
+paranoidzeroentry_ist debug do_debug DEBUG_STACK ex_do_debug
+paranoidzeroentry_ist int3 do_int3 DEBUG_STACK ex_do_int3
 paranoiderrorentry stack_segment do_stack_segment
 #ifdef CONFIG_XEN
 zeroentry xen_debug do_debug
 zeroentry xen_int3 do_int3
 errorentry xen_stack_segment do_stack_segment
 #endif
-errorentry general_protection do_general_protection
-errorentry page_fault do_page_fault
+errorentry general_protection do_general_protection ex_do_general_protection
+errorentry page_fault do_page_fault ex_do_page_fault
 #ifdef CONFIG_KVM_GUEST
 errorentry async_page_fault do_async_page_fault
 #endif
@@ -1354,8 +1537,13 @@ ENTRY(paranoid_exit)
 	DEFAULT_FRAME
 	DISABLE_INTERRUPTS(CLBR_NONE)
 	TRACE_IRQS_OFF
+paranoid_notrace:
 	testl %ebx,%ebx				/* swapgs needed? */
 	jnz paranoid_restore
+#ifdef CONFIG_IPIPE
+	testl %eax,%eax
+	jnz paranoid_swapgs
+#endif
 	testl $3,CS(%rsp)
 	jnz   paranoid_userspace
 paranoid_swapgs:
@@ -1426,7 +1614,6 @@ ENTRY(error_entry)
 error_swapgs:
 	SWAPGS
 error_sti:
-	TRACE_IRQS_OFF
 	ret
 
 /*

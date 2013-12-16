@@ -730,6 +730,7 @@ void __math_state_restore(void)
 	 */
 	if (unlikely(restore_fpu_checking(tsk))) {
 		stts();
+		local_irq_enable_hw_cond();
 		force_sig(SIGSEGV, tsk);
 		return;
 	}
@@ -752,6 +753,7 @@ asmlinkage void math_state_restore(void)
 {
 	struct thread_info *thread = current_thread_info();
 	struct task_struct *tsk = thread->task;
+	unsigned long flags;
 
 	if (!tsk_used_math(tsk)) {
 		local_irq_enable();
@@ -768,9 +770,11 @@ asmlinkage void math_state_restore(void)
 		local_irq_disable();
 	}
 
+  	local_irq_save_hw_cond(flags);
 	clts();				/* Allow maths ops (or we recurse) */
 
 	__math_state_restore();
+ 	local_irq_restore_hw_cond(flags);
 }
 EXPORT_SYMBOL_GPL(math_state_restore);
 
