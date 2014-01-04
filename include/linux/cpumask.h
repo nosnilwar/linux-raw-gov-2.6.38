@@ -100,6 +100,12 @@ extern const struct cpumask *const cpu_active_mask;
 #define cpu_active(cpu)		((cpu) == 0)
 #endif
 
+/*
+ * TODO: RAWLINSON - DEFININDO PROCESSADOR PADRAO DO RTAI...
+ */
+#define CPUID_RTAI	(num_online_cpus() - 1) //TODO: RAWLINSON - VERIFICAR SE O CPUID EH VALIDO POIS PODE FAZER REFERENCIA A UM CPU QUE ESTAH OFFLINE.
+#define CPUID_PADRAO	0
+
 /* verify cpu argument to cpumask_* operators */
 static inline unsigned int cpumask_check(unsigned int cpu)
 {

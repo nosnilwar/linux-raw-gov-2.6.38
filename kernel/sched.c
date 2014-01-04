@@ -1695,6 +1695,7 @@ static void update_cpu_load(struct rq *this_rq);
 
 static inline void __set_task_cpu(struct task_struct *p, unsigned int cpu)
 {
+	//TODO:RAWLINSON...
 	set_task_rq(p, cpu);
 #ifdef CONFIG_SMP
 	/*
@@ -2293,16 +2294,19 @@ void task_oncpu_function_call(struct task_struct *p,
 static int select_fallback_rq(int cpu, struct task_struct *p)
 {
 	int dest_cpu;
+	int prev_cpu = task_cpu(p);
 	const struct cpumask *nodemask = cpumask_of_node(cpu_to_node(cpu));
 
 	/* Look for allowed, online CPU in same node. */
 	for_each_cpu_and(dest_cpu, nodemask, cpu_active_mask)
-		if (cpumask_test_cpu(dest_cpu, &p->cpus_allowed))
+		//TODO:RAWLINSON... != CPUID_RTAI
+		if (dest_cpu != CPUID_RTAI && cpumask_test_cpu(dest_cpu, &p->cpus_allowed))
 			return dest_cpu;
 
 	/* Any allowed, online CPU? */
 	dest_cpu = cpumask_any_and(&p->cpus_allowed, cpu_active_mask);
-	if (dest_cpu < nr_cpu_ids)
+	//TODO:RAWLINSON... != CPUID_RTAI
+	if (dest_cpu < nr_cpu_ids && dest_cpu != CPUID_RTAI)
 		return dest_cpu;
 
 	/* No more Mr. Nice Guy. */
@@ -2315,6 +2319,12 @@ static int select_fallback_rq(int cpu, struct task_struct *p)
 	if (p->mm && printk_ratelimit()) {
 		printk(KERN_INFO "process %d (%s) no longer affine to cpu%d\n",
 				task_pid_nr(p), p->comm, cpu);
+	}
+
+	//TODO:RAWLINSON... != CPUID_RTAI
+	if(dest_cpu == CPUID_RTAI)
+	{
+		return prev_cpu;
 	}
 
 	return dest_cpu;
@@ -2588,6 +2598,13 @@ void sched_fork(struct task_struct *p, int clone_flags)
 {
 	int cpu = get_cpu();
 
+	//TODO:RAWLINSON... != CPUID_RTAI
+	if(cpu == CPUID_RTAI)
+	{
+		//TODO: RAWLINSON - MELHORAR ISSO... PERCORRENDO OS CPUS E VERIFICANDO QUAL ESTAH MAIS OCIOSO... PARA SER MAIS JUSTO.
+		cpu = CPUID_PADRAO; // GAMBII... HEHEHE :P
+	}
+
 	__sched_fork(p);
 	/*
 	 * We mark the process as running here. This guarantees that
@@ -2683,6 +2700,7 @@ void wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 	 * We set TASK_WAKING so that select_task_rq() can drop rq->lock
 	 * without people poking at ->cpus_allowed.
 	 */
+	//TODO:RAWLINSON
 	cpu = select_task_rq(rq, p, SD_BALANCE_FORK, 0);
 	set_task_cpu(p, cpu);
 
@@ -4012,6 +4030,7 @@ need_resched_nonpreemptible:
 
 	pre_schedule(rq, prev);
 
+	//TODO:RAWLINSON... VERIFICAR AQUI
 	if (unlikely(!rq->nr_running))
 		idle_balance(cpu, rq);
 
@@ -4028,6 +4047,7 @@ need_resched_nonpreemptible:
 		rq->curr = next;
 		++*switch_count;
 
+		//TODO:RAWLINSON... VERIFICAR AQUI
  		if (context_switch(rq, prev, next)) /* unlocks the rq */
   			return 1; /* task hijacked by higher domain */
 		/*
