@@ -27,6 +27,8 @@ typedef struct cpumask { DECLARE_BITMAP(bits, NR_CPUS); } cpumask_t;
 extern int nr_cpu_ids;
 #endif
 
+#define CPUID_PADRAO 0 //TODO:RAWLINSON...
+
 #ifdef CONFIG_CPUMASK_OFFSTACK
 /* Assuming NR_CPUS is huge, a runtime limit is more efficient.  Also,
  * not all bits may be allocated. */
@@ -99,12 +101,6 @@ extern const struct cpumask *const cpu_active_mask;
 #define cpu_present(cpu)	((cpu) == 0)
 #define cpu_active(cpu)		((cpu) == 0)
 #endif
-
-/*
- * TODO: RAWLINSON - DEFININDO PROCESSADOR PADRAO DO RTAI...
- */
-#define CPUID_RTAI	(num_online_cpus() - 1) //TODO: RAWLINSON - VERIFICAR SE O CPUID EH VALIDO POIS PODE FAZER REFERENCIA A UM CPU QUE ESTAH OFFLINE.
-#define CPUID_PADRAO	0
 
 /* verify cpu argument to cpumask_* operators */
 static inline unsigned int cpumask_check(unsigned int cpu)
