@@ -28,6 +28,7 @@ extern int nr_cpu_ids;
 #endif
 
 #define CPUID_PADRAO 0 //TODO:RAWLINSON...
+#define CPUID_RTAI 1 //TODO:RAWLINSON...
 
 #ifdef CONFIG_CPUMASK_OFFSTACK
 /* Assuming NR_CPUS is huge, a runtime limit is more efficient.  Also,

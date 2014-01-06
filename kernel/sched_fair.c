@@ -1580,8 +1580,7 @@ find_idlest_cpu(struct sched_group *group, struct task_struct *p, int this_cpu)
 	for_each_cpu_and(i, sched_group_cpus(group), &p->cpus_allowed) {
 		load = weighted_cpuload(i);
 
-		//TODO: RAWLINSON - EXCLUINDO O CPUID DO RTAI...
-		if (i != CPUID_RTAI && (load < min_load || (load == min_load && i == this_cpu))) {
+		if (load < min_load || (load == min_load && i == this_cpu)) {
 			min_load = load;
 			idlest = i;
 		}
@@ -1604,16 +1603,14 @@ static int select_idle_sibling(struct task_struct *p, int target)
 	 * If the task is going to be woken-up on this cpu and if it is
 	 * already idle, then it is the right target.
 	 */
-	//TODO:RAWLINSON... != CPUID_RTAI
-	if (target == cpu && idle_cpu(cpu) && target != CPUID_RTAI)
+	if (target == cpu && idle_cpu(cpu))
 		return cpu;
 
 	/*
 	 * If the task is going to be woken-up on the cpu where it previously
 	 * ran and if it is currently idle, then it the right target.
 	 */
-	//TODO:RAWLINSON... != CPUID_RTAI
-	if (target == prev_cpu && idle_cpu(prev_cpu) && target != CPUID_RTAI)
+	if (target == prev_cpu && idle_cpu(prev_cpu))
 		return prev_cpu;
 
 	/*
@@ -1624,8 +1621,7 @@ static int select_idle_sibling(struct task_struct *p, int target)
 			break;
 
 		for_each_cpu_and(i, sched_domain_span(sd), &p->cpus_allowed) {
-			//TODO:RAWLINSON... != CPUID_RTAI
-			if (idle_cpu(i) && i != CPUID_RTAI) {
+			if (idle_cpu(i)) {
 				target = i;
 				break;
 			}
@@ -1638,12 +1634,6 @@ static int select_idle_sibling(struct task_struct *p, int target)
 		if (cpumask_test_cpu(cpu, sched_domain_span(sd)) &&
 		    cpumask_test_cpu(prev_cpu, sched_domain_span(sd)))
 			break;
-	}
-
-	//TODO:RAWLINSON... != CPUID_RTAI
-	if(target == CPUID_RTAI)
-	{
-		return prev_cpu;
 	}
 
 	return target;

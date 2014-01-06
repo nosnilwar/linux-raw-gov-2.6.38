@@ -996,9 +996,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 {
 	int retval;
 
-	//TODO:RAWLINSON
-//	struct cpumask cpu_padrao;
-
 	struct task_struct *p;
 	int cgroup_callbacks_done = 0;
 
@@ -1198,15 +1195,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	}
 
 	p->pid = pid_nr(pid);
-
-	//TODO:RAWLINSON
-//	cpu_padrao = cpumask_of_cpu(CPUID_PADRAO);
-//	retval = sched_setaffinity(p->pid, &cpu_padrao);
-//	if (!retval)
-//	{
-//		printk(KERN_INFO "[FORK_DEBUG_RAWLINSON] PID:%5d -> NOME:%15s", p->pid, p->comm);
-//	}
-	printk(KERN_INFO "[FORK_DEBUG_RAWLINSON] PID:%5d -> NOME:%15s", p->pid, p->comm);
 
 	p->tgid = p->pid;
 	if (clone_flags & CLONE_THREAD)

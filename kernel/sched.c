@@ -2294,19 +2294,16 @@ void task_oncpu_function_call(struct task_struct *p,
 static int select_fallback_rq(int cpu, struct task_struct *p)
 {
 	int dest_cpu;
-	int prev_cpu = task_cpu(p);
 	const struct cpumask *nodemask = cpumask_of_node(cpu_to_node(cpu));
 
 	/* Look for allowed, online CPU in same node. */
 	for_each_cpu_and(dest_cpu, nodemask, cpu_active_mask)
-		//TODO:RAWLINSON... != CPUID_RTAI
-		if (dest_cpu != CPUID_RTAI && cpumask_test_cpu(dest_cpu, &p->cpus_allowed))
+		if (cpumask_test_cpu(dest_cpu, &p->cpus_allowed))
 			return dest_cpu;
 
 	/* Any allowed, online CPU? */
 	dest_cpu = cpumask_any_and(&p->cpus_allowed, cpu_active_mask);
-	//TODO:RAWLINSON... != CPUID_RTAI
-	if (dest_cpu < nr_cpu_ids && dest_cpu != CPUID_RTAI)
+	if (dest_cpu < nr_cpu_ids)
 		return dest_cpu;
 
 	/* No more Mr. Nice Guy. */
@@ -2319,12 +2316,6 @@ static int select_fallback_rq(int cpu, struct task_struct *p)
 	if (p->mm && printk_ratelimit()) {
 		printk(KERN_INFO "process %d (%s) no longer affine to cpu%d\n",
 				task_pid_nr(p), p->comm, cpu);
-	}
-
-	//TODO:RAWLINSON... != CPUID_RTAI
-	if(dest_cpu == CPUID_RTAI)
-	{
-		return prev_cpu;
 	}
 
 	return dest_cpu;
@@ -2598,13 +2589,6 @@ void sched_fork(struct task_struct *p, int clone_flags)
 {
 	int cpu = get_cpu();
 
-	//TODO:RAWLINSON... != CPUID_RTAI
-	if(cpu == CPUID_RTAI)
-	{
-		//TODO: RAWLINSON - MELHORAR ISSO... PERCORRENDO OS CPUS E VERIFICANDO QUAL ESTAH MAIS OCIOSO... PARA SER MAIS JUSTO.
-		cpu = CPUID_PADRAO; // GAMBII... HEHEHE :P
-	}
-
 	__sched_fork(p);
 	/*
 	 * We mark the process as running here. This guarantees that
@@ -2673,6 +2657,29 @@ void sched_fork(struct task_struct *p, int clone_flags)
 #endif
 
 	put_cpu();
+
+	/** [BEGIN] TODO: [RAWLINSON] log dos processos que estão sendo postos em executacao no processador... **/
+	// Segue abaixo o formato do arquivo de exportacao...
+	// |CPUID|nome da task|PID|trocas de processador|prioridade|
+	pr_info("[RAWLINSON_FORK]: "
+			"|%5d"
+			"|%15s"
+			"|%5d"
+			"|%9Ld"
+			"|%5d"
+			"|%9Ld"
+			"|%9Ld"
+			"|%9Ld|\n",
+			task_cpu(p),
+			p->comm,
+			p->pid,
+			(long long)(p->nvcsw + p->nivcsw),
+			p->prio,
+			p->se.vruntime,
+			p->se.sum_exec_runtime,
+			p->se.prev_sum_exec_runtime
+	);
+	/** [END] TODO: [RAWLINSON] **/
 }
 
 /*
@@ -2700,7 +2707,6 @@ void wake_up_new_task(struct task_struct *p, unsigned long clone_flags)
 	 * We set TASK_WAKING so that select_task_rq() can drop rq->lock
 	 * without people poking at ->cpus_allowed.
 	 */
-	//TODO:RAWLINSON
 	cpu = select_task_rq(rq, p, SD_BALANCE_FORK, 0);
 	set_task_cpu(p, cpu);
 
@@ -3984,12 +3990,46 @@ asmlinkage int __sched schedule(void)
 	struct rq *rq;
 	int cpu;
 
+	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
+	unsigned int freq = cpu_khz ? : 1;
+	struct task_struct *tsk;
+	/** [END] TODO: [RAWLINSON] **/
+
 need_resched:
 	preempt_disable();
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
 	rcu_note_context_switch(cpu);
 	prev = rq->curr;
+
+	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
+	tsk = rq->curr;
+	pr_info("[RAWLINSON_SCHEDULE]: "
+			"|%5d"
+			"|%15s"
+			"|%5d"
+			"|%u.%03u MHz"
+			"|%ld"
+			"|%ld"
+			"|%9Ld"
+			"|%5d"
+			"|%9Ld"
+			"|%9Ld"
+			"|%9Ld|\n",
+			task_cpu(tsk),
+			tsk->comm,
+			tsk->pid,
+			(freq / 1000),
+			(freq % 1000),
+			(long) rq->clock,
+			(long) rq->clock_task,
+			(long long) (tsk->nvcsw + tsk->nivcsw),
+			tsk->prio,
+			tsk->se.vruntime,
+			tsk->se.exec_start,
+			tsk->se.sum_exec_runtime
+	);
+	/** [END] TODO: [RAWLINSON] **/
 
  	if (unlikely(prev->state & TASK_ATOMICSWITCH))
 		/* Pop one disable level -- one still remains. */
@@ -4030,7 +4070,6 @@ need_resched_nonpreemptible:
 
 	pre_schedule(rq, prev);
 
-	//TODO:RAWLINSON... VERIFICAR AQUI
 	if (unlikely(!rq->nr_running))
 		idle_balance(cpu, rq);
 
@@ -4047,7 +4086,6 @@ need_resched_nonpreemptible:
 		rq->curr = next;
 		++*switch_count;
 
-		//TODO:RAWLINSON... VERIFICAR AQUI
  		if (context_switch(rq, prev, next)) /* unlocks the rq */
   			return 1; /* task hijacked by higher domain */
 		/*
