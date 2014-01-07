@@ -2658,28 +2658,30 @@ void sched_fork(struct task_struct *p, int clone_flags)
 
 	put_cpu();
 
+#ifdef CONFIG_RAWLINSON_DEBUG
 	/** [BEGIN] TODO: [RAWLINSON] log dos processos que estão sendo postos em executacao no processador... **/
 	// Segue abaixo o formato do arquivo de exportacao...
 	// |CPUID|nome da task|PID|trocas de processador|prioridade|
-	pr_info("[RAWLINSON_FORK]: "
-			"|%5d"
-			"|%15s"
-			"|%5d"
-			"|%9Ld"
-			"|%5d"
-			"|%9Ld"
-			"|%9Ld"
-			"|%9Ld|\n",
-			task_cpu(p),
-			p->comm,
-			p->pid,
-			(long long)(p->nvcsw + p->nivcsw),
-			p->prio,
-			p->se.vruntime,
-			p->se.sum_exec_runtime,
-			p->se.prev_sum_exec_runtime
-	);
+//	pr_info("[RAWLINSON_FORK]: "
+//			"|%5d"
+//			"|%15s"
+//			"|%5d"
+//			"|%9Ld"
+//			"|%5d"
+//			"|%9Ld"
+//			"|%9Ld"
+//			"|%9Ld|\n",
+//			task_cpu(p),
+//			p->comm,
+//			p->pid,
+//			(long long)(p->nvcsw + p->nivcsw),
+//			p->prio,
+//			p->se.vruntime,
+//			p->se.sum_exec_runtime,
+//			p->se.prev_sum_exec_runtime
+//	);
 	/** [END] TODO: [RAWLINSON] **/
+#endif
 }
 
 /*
@@ -4002,34 +4004,36 @@ need_resched:
 	rcu_note_context_switch(cpu);
 	prev = rq->curr;
 
+#ifdef CONFIG_RAWLINSON_DEBUG
 	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
 	tsk = rq->curr;
-	pr_info("[RAWLINSON_SCHEDULE]: "
-			"|%5d"
-			"|%15s"
-			"|%5d"
-			"|%u.%03u MHz"
-			"|%ld"
-			"|%ld"
-			"|%9Ld"
-			"|%5d"
-			"|%9Ld"
-			"|%9Ld"
-			"|%9Ld|\n",
-			task_cpu(tsk),
-			tsk->comm,
-			tsk->pid,
-			(freq / 1000),
-			(freq % 1000),
-			(long) rq->clock,
-			(long) rq->clock_task,
-			(long long) (tsk->nvcsw + tsk->nivcsw),
-			tsk->prio,
-			tsk->se.vruntime,
-			tsk->se.exec_start,
-			tsk->se.sum_exec_runtime
-	);
+//	pr_info("[RAWLINSON_SCHEDULE]: "
+//			"|%5d"
+//			"|%15s"
+//			"|%5d"
+//			"|%u.%03u MHz"
+//			"|%ld"
+//			"|%ld"
+//			"|%9Ld"
+//			"|%5d"
+//			"|%9Ld"
+//			"|%9Ld"
+//			"|%9Ld|\n",
+//			task_cpu(tsk),
+//			tsk->comm,
+//			tsk->pid,
+//			(freq / 1000),
+//			(freq % 1000),
+//			(long) rq->clock,
+//			(long) rq->clock_task,
+//			(long long) (tsk->nvcsw + tsk->nivcsw),
+//			tsk->prio,
+//			tsk->se.vruntime,
+//			tsk->se.exec_start,
+//			tsk->se.sum_exec_runtime
+//	);
 	/** [END] TODO: [RAWLINSON] **/
+#endif
 
  	if (unlikely(prev->state & TASK_ATOMICSWITCH))
 		/* Pop one disable level -- one still remains. */

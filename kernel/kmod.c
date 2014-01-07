@@ -134,12 +134,18 @@ static int ____call_usermodehelper(void *data)
 	struct subprocess_info *sub_info = data;
 	int retval;
 
+	//TODO:RAWLINSON
+	struct cpumask cpu_padrao = cpumask_of_cpu(CPUID_PADRAO);
+
 	spin_lock_irq(&current->sighand->siglock);
 	flush_signal_handlers(current, 1);
 	spin_unlock_irq(&current->sighand->siglock);
 
 	/* We can run anywhere, unlike our parent keventd(). */
-	set_cpus_allowed_ptr(current, cpu_all_mask);
+	//TODO:RAWLINSON
+	//set_cpus_allowed_ptr(current, cpu_all_mask); //TODO:RAWLINSON - CODIGO ORIGINAL...
+	current->cpus_allowed = cpu_padrao;
+	set_cpus_allowed_ptr(current, &cpu_padrao);
 
 	/*
 	 * Our parent is keventd, which runs with elevated scheduling priority.

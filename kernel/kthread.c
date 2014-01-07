@@ -136,6 +136,9 @@ struct task_struct *kthread_create(int (*threadfn)(void *data),
 {
 	struct kthread_create_info create;
 
+	//TODO:RAWLINSON
+	struct cpumask cpu_padrao = cpumask_of_cpu(CPUID_PADRAO);
+
 	create.threadfn = threadfn;
 	create.data = data;
 	init_completion(&create.done);
@@ -160,7 +163,11 @@ struct task_struct *kthread_create(int (*threadfn)(void *data),
 		 * The kernel thread should not inherit these properties.
 		 */
 		sched_setscheduler_nocheck(create.result, SCHED_NORMAL, &param);
-		set_cpus_allowed_ptr(create.result, cpu_all_mask);
+
+		//TODO:RAWLINSON
+		//set_cpus_allowed_ptr(create.result, cpu_all_mask); //TODO:RAWLINSON - CODIGO ORIGINAL...
+		create.result->cpus_allowed = cpu_padrao;
+		set_cpus_allowed_ptr(create.result, &cpu_padrao);
 	}
 	return create.result;
 }
@@ -183,7 +190,6 @@ void kthread_bind(struct task_struct *p, unsigned int cpu)
 		return;
 	}
 
-	//TODO:RAWLINSON
 	p->cpus_allowed = cpumask_of_cpu(cpu);
 	p->rt.nr_cpus_allowed = 1;
 	p->flags |= PF_THREAD_BOUND;
@@ -233,10 +239,18 @@ int kthreadd(void *unused)
 {
 	struct task_struct *tsk = current;
 
+	//TODO:RAWLINSON
+	struct cpumask cpu_padrao = cpumask_of_cpu(CPUID_PADRAO);
+
 	/* Setup a clean context for our children to inherit. */
 	set_task_comm(tsk, "kthreadd");
 	ignore_signals(tsk);
-	set_cpus_allowed_ptr(tsk, cpu_all_mask);
+
+	//TODO:RAWLINSON
+	//set_cpus_allowed_ptr(tsk, cpu_all_mask); //TODO:RAWLINSON - CODIGO ORIGINAL...
+	tsk->cpus_allowed = cpu_padrao;
+	set_cpus_allowed_ptr(tsk, &cpu_padrao);
+
 	set_mems_allowed(node_states[N_HIGH_MEMORY]);
 
 	current->flags |= PF_NOFREEZE | PF_FREEZER_NOSIG;

@@ -870,6 +870,9 @@ static noinline int init_post(void)
 
 static int __init kernel_init(void * unused)
 {
+	//TODO:RAWLINSON
+	struct cpumask cpu_padrao = cpumask_of_cpu(CPUID_PADRAO);
+
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
@@ -881,7 +884,12 @@ static int __init kernel_init(void * unused)
 	/*
 	 * init can run on any cpu.
 	 */
-	set_cpus_allowed_ptr(current, cpu_all_mask);
+
+	//TODO:RAWLINSON
+	//set_cpus_allowed_ptr(current, cpu_all_mask); //TODO:RAWLINSON - CODIGO ORIGINAL
+	current->cpus_allowed = cpu_padrao;
+	set_cpus_allowed_ptr(current, &cpu_padrao);
+
 	/*
 	 * Tell the world that we're going to be the grim
 	 * reaper of innocent orphaned children.
