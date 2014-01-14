@@ -358,6 +358,9 @@ extern struct cpufreq_governor cpufreq_gov_powersave;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_USERSPACE)
 extern struct cpufreq_governor cpufreq_gov_userspace;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_userspace)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_RAW)
+extern struct cpufreq_governor cpufreq_gov_raw;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_raw)
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND)
 extern struct cpufreq_governor cpufreq_gov_ondemand;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_ondemand)
@@ -365,7 +368,6 @@ extern struct cpufreq_governor cpufreq_gov_ondemand;
 extern struct cpufreq_governor cpufreq_gov_conservative;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_conservative)
 #endif
-
 
 /*********************************************************************
  *                     FREQUENCY TABLE HELPERS                       *
@@ -396,6 +398,10 @@ int cpufreq_frequency_table_target(struct cpufreq_policy *policy,
 struct cpufreq_frequency_table *cpufreq_frequency_get_table(unsigned int cpu);
 struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu);
 void   cpufreq_cpu_put (struct cpufreq_policy *data);
+
+//TODO:RAWLINSON - ACRESCENTADOS AS FUNCOES ABAIXO... PARA SEREM UTILIZADAS NO SCHED.C NO RTAI. :P
+int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor);
+ssize_t store_scaling_governor(struct cpufreq_policy *policy, const char *buf, size_t count);
 
 /* the following are really really optional */
 extern struct freq_attr cpufreq_freq_attr_scaling_available_freqs;

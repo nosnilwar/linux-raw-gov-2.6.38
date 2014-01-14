@@ -385,8 +385,9 @@ static struct cpufreq_governor *__find_governor(const char *str_governor)
 /**
  * cpufreq_parse_governor - parse a governor string
  */
-static int cpufreq_parse_governor(char *str_governor, unsigned int *policy,
-				struct cpufreq_governor **governor)
+//TODO:RAWLINSON...
+int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor)
+//static int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor) // Original...
 {
 	int err = -EINVAL;
 
@@ -438,6 +439,8 @@ out:
 	return err;
 }
 
+//TODO:RAWLINSON...
+EXPORT_SYMBOL_GPL(cpufreq_parse_governor);
 
 /**
  * cpufreq_per_cpu_attr_read() / show_##file_name() -
@@ -523,8 +526,9 @@ static ssize_t show_scaling_governor(struct cpufreq_policy *policy, char *buf)
 /**
  * store_scaling_governor - store policy for the specified CPU
  */
-static ssize_t store_scaling_governor(struct cpufreq_policy *policy,
-					const char *buf, size_t count)
+//TODO:RAWLINSON...
+ssize_t store_scaling_governor(struct cpufreq_policy *policy, const char *buf, size_t count)
+//static ssize_t store_scaling_governor(struct cpufreq_policy *policy, const char *buf, size_t count) // ORIGINAL...
 {
 	unsigned int ret = -EINVAL;
 	char	str_governor[16];
@@ -554,6 +558,8 @@ static ssize_t store_scaling_governor(struct cpufreq_policy *policy,
 	else
 		return count;
 }
+//TODO:RAWLINSON...
+EXPORT_SYMBOL_GPL(store_scaling_governor);
 
 /**
  * show_scaling_driver - show the cpufreq driver currently loaded
