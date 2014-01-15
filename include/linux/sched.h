@@ -1218,6 +1218,17 @@ struct task_struct {
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
 
+	//TODO:RAWLINSON - Flag que indica ao RAW GOVERNOR que a tarefa acabou de voltar de uma preempcao.
+	unsigned int flagReturnPreemption;  // (1 - se a tarefa voltou de preempcao dentro do RTAI e 0 - caso contrário)
+
+	/* TODO:RAWLINSON - VARIAVEIS DE CONTROLE E GERENCIAMENTO DO RAW GOVERNOR */
+	unsigned long tsk_wcec; // WCEC - Worst Case Execution Cycles - of the task
+	unsigned long rwcec; // RWCEC - Remaining Worst Case Execution Cycle
+
+	unsigned int cpu_frequency;
+	unsigned int cpu_voltage;
+	/* TODO:RAWLINSON - FIM DAS DEFINICOES...*/
+
 	int lock_depth;		/* BKL lock depth */
 
 #ifdef CONFIG_SMP
