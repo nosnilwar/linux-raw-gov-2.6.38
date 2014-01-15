@@ -385,9 +385,7 @@ static struct cpufreq_governor *__find_governor(const char *str_governor)
 /**
  * cpufreq_parse_governor - parse a governor string
  */
-//TODO:RAWLINSON...
-int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor)
-//static int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor) // Original...
+static int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor) // Original...
 {
 	int err = -EINVAL;
 
@@ -438,9 +436,6 @@ int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpuf
 out:
 	return err;
 }
-
-//TODO:RAWLINSON...
-EXPORT_SYMBOL_GPL(cpufreq_parse_governor);
 
 /**
  * cpufreq_per_cpu_attr_read() / show_##file_name() -

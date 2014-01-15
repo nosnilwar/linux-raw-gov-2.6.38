@@ -400,7 +400,6 @@ struct cpufreq_policy *cpufreq_cpu_get(unsigned int cpu);
 void   cpufreq_cpu_put (struct cpufreq_policy *data);
 
 //TODO:RAWLINSON - ACRESCENTADOS AS FUNCOES ABAIXO... PARA SEREM UTILIZADAS NO SCHED.C NO RTAI. :P
-int cpufreq_parse_governor(char *str_governor, unsigned int *policy, struct cpufreq_governor **governor);
 ssize_t store_scaling_governor(struct cpufreq_policy *policy, const char *buf, size_t count);
 
 /* the following are really really optional */

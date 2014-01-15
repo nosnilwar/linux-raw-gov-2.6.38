@@ -75,7 +75,8 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 {
 	int ret = -EINVAL;
 
-	dprintk("cpufreq_raw_set for cpu %u, freq %u kHz\n", policy->cpu, freq);
+	//dprintk("cpufreq_raw_set for cpu %u, freq %u kHz\n", policy->cpu, freq);
+	printk("DEBUG:RAWLINSON - cpufreq_raw_set for cpu %u, freq %u kHz\n", policy->cpu, freq);
 
 	mutex_lock(&raw_mutex);
 	if (!per_cpu(cpu_is_managed, policy->cpu))
@@ -98,7 +99,7 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 	 *      __cpufreq_governor ->
 	 *         cpufreq_governor_raw (lock raw_mutex)
 	 */
-	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_L);
+	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
 
  err:
 	mutex_unlock(&raw_mutex);
