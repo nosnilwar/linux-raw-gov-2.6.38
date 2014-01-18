@@ -1079,12 +1079,14 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	init_sigpending(&p->pending);
 
-	//TODO:RAWLINSON
+	//TODO:RAWLINSON - Inicializando variaveis de controle do RAW GOVERNOR...
 	p->flagReturnPreemption = 0;
 	p->tsk_wcec = 0;
 	p->rwcec = 0;
 	p->cpu_frequency = 0;
 	p->cpu_voltage = 0;
+	p->last_cpu_frequency = 0;
+	p->last_cpu_voltage = 0;
 	p->cpus_allowed = cpumask_of_cpu(CPUID_PADRAO);
 
 	p->utime = cputime_zero;

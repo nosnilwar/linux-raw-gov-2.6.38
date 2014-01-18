@@ -3993,8 +3993,8 @@ asmlinkage int __sched schedule(void)
 	int cpu;
 
 	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
-	unsigned int freq = cpu_khz ? : 1;
-	struct task_struct *tsk;
+//	unsigned int freq = cpu_khz ? : 1;
+//	struct task_struct *tsk;
 	/** [END] TODO: [RAWLINSON] **/
 
 need_resched:
@@ -4006,7 +4006,7 @@ need_resched:
 
 #ifdef CONFIG_RAWLINSON_DEBUG
 	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
-	tsk = rq->curr;
+//	tsk = rq->curr;
 //	pr_info("[RAWLINSON_SCHEDULE]: "
 //			"|%5d"
 //			"|%15s"
@@ -8290,6 +8290,9 @@ struct task_struct *curr_task(int cpu)
 {
 	return cpu_curr(cpu);
 }
+
+//TODO:RAWLINSON...
+EXPORT_SYMBOL(curr_task);
 
 #endif /* defined(CONFIG_IA64) || defined(CONFIG_KGDB_KDB) */
 

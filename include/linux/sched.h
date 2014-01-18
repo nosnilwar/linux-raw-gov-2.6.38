@@ -1227,6 +1227,8 @@ struct task_struct {
 
 	unsigned int cpu_frequency;
 	unsigned int cpu_voltage;
+	unsigned int last_cpu_frequency;
+	unsigned int last_cpu_voltage;
 	/* TODO:RAWLINSON - FIM DAS DEFINICOES...*/
 
 	int lock_depth;		/* BKL lock depth */
