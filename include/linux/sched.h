@@ -229,10 +229,17 @@ extern char ___assert_task_state[1 - 2*!!(
 				((task->state & TASK_UNINTERRUPTIBLE) != 0 && \
 				 (task->flags & PF_FREEZING) == 0)
 
+//TODO:RAWLINSON...
+/** ORIGINAL...
 #define __set_task_state(tsk, state_value)		\
-	do { (tsk)->state = (state_value); } while (0)
+	do { (tsk)->state = (state_value); if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - __set_task_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", tsk->comm, tsk->pid, tsk->state, state_value); } while (0)
 #define set_task_state(tsk, state_value)		\
-	set_mb((tsk)->state, (state_value))
+	do { set_mb((tsk)->state, (state_value)); if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_task_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", tsk->comm, tsk->pid, tsk->state, state_value); } while (0)
+*/
+#define __set_task_state(tsk, state_value)		\
+	do { (tsk)->state = (state_value); if(state_value == TASK_INTERRUPTIBLE) (tsk)->flagReturnPreemption = 1; } while (0)
+#define set_task_state(tsk, state_value)		\
+	do { set_mb((tsk)->state, (state_value)); if(state_value == TASK_INTERRUPTIBLE) (tsk)->flagReturnPreemption = 1; } while (0)
 
 /*
  * set_current_state() includes a barrier so that the write of current->state
@@ -245,10 +252,20 @@ extern char ___assert_task_state[1 - 2*!!(
  *
  * If the caller does not need such serialisation then use __set_current_state()
  */
+//TODO:RAWLINSON...
+/** ORIGINAL...
 #define __set_current_state(state_value)			\
-	do { current->state = (state_value); } while (0)
+	do { current->state = (state_value); if(task_cpu(current) == 0)  pr_info("[RAWLINSON_SCHEDULE - __set_current_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", current->comm, current->pid, current->state, state_value); } while (0)
+
 #define set_current_state(state_value)		\
-	set_mb(current->state, (state_value))
+	do { set_mb(current->state, (state_value)); if(task_cpu(current) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_current_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", current->comm, current->pid, current->state, state_value); } while (0)
+*/
+
+#define __set_current_state(state_value)			\
+	do { current->state = (state_value); if(state_value == TASK_INTERRUPTIBLE) current->flagReturnPreemption = 1; } while (0)
+
+#define set_current_state(state_value)		\
+	do { set_mb(current->state, (state_value)); if(state_value == TASK_INTERRUPTIBLE) current->flagReturnPreemption = 1; } while (0)
 
 /* Task command name length */
 #define TASK_COMM_LEN 16
@@ -1211,6 +1228,11 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+//TODO:RAWLINSON - DEFININDO OS ESTADOS QUE UMA TAREFA DE TEMPO REAL TERA... DURANTE SUA EXECUCAO.
+#define TASK_PERIOD_UNDEFINED	0
+#define TASK_PERIOD_RUNNING		1
+#define TASK_PERIOD_FINISHED	2
+
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
@@ -1224,6 +1246,10 @@ struct task_struct {
 	/* TODO:RAWLINSON - VARIAVEIS DE CONTROLE E GERENCIAMENTO DO RAW GOVERNOR */
 	unsigned long tsk_wcec; // WCEC - Worst Case Execution Cycles - of the task
 	unsigned long rwcec; // RWCEC - Remaining Worst Case Execution Cycle
+	unsigned int state_task_period; // Estado da tarefa durante o periodo...
+							   	    // 0 - indefinida
+							   	    // 1 - tarefa rodando
+							   	    // 2 - tarefa finalizada
 
 	unsigned int cpu_frequency;
 	unsigned int cpu_voltage;

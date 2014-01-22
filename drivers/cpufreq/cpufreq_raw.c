@@ -34,8 +34,6 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 
-#define MICRO_FREQUENCY_MIN_SAMPLE_RATE		(10000)
-
 /*
  * The polling frequency of this governor depends on the capability of
  * the processor. Default polling frequency is 1000 times the transition
@@ -46,8 +44,8 @@
  * this governor will not work.
  * All times here are in uS.
  */
-#define MIN_SAMPLING_RATE_RATIO			(0)
-#define MIN_SAMPLING_RATE	MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(1) /* For correct statistics, we need X ticks for each measure */
+#define MIN_SAMPLING_RATE_RATIO			(2)
+#define MIN_SAMPLING_RATE	MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10) /* For correct statistics, we need X ticks for each measure */
 
 /**
  * A few values needed by the raw governor
@@ -64,10 +62,7 @@ static int cpus_using_raw_governor;
 
 static struct workqueue_struct	*kraw_wq;
 
-/**
- *
- */
-struct task_struct * signaled_task;
+unsigned long cont_kraw;
 
 #define dprintk(msg...) \
 	cpufreq_debug_printk(CPUFREQ_DEBUG_GOVERNOR, "raw", msg)
@@ -119,45 +114,6 @@ static struct notifier_block raw_cpufreq_notifier_block = {
 };
 
 /**
- * Sinaliza para o governor a tarefa que acabou de voltar de preempcao...
- */
-static int set_signaled_task(struct cpufreq_policy *policy, struct task_struct *task)
-{
-	int ret = 1;
-	unsigned int cpu = policy->cpu;
-	struct cpu_dbs_info_s *dbs_info;
-
-	mutex_lock(&raw_mutex);
-
-	dbs_info = &per_cpu(od_cpu_dbs_info, cpu);
-
-	printk("DEBUG:RAWLINSON -> set_signaled_task() -> WAKE UP -> PID: %d |%lu|%lu|%d|%d|%d|\n", task->pid, task->tsk_wcec, task->rwcec, task->cpu_frequency, task->cpu_voltage, task->flagReturnPreemption);
-	signaled_task = task;
-
-	// Agora vamos sinalizar para a Kraw (Kworker) que uma tarefa voltou de preempcao e vamos cancelar o seu delay...
-	// para ela definir uma nova frequencia para o processador continuar executando a tarefa...
-	switch (task->flagReturnPreemption) {
-		case 2:
-			queue_delayed_work_on(dbs_info->cpu, kraw_wq, &dbs_info->work, 0);
-			flush_delayed_work(&dbs_info->work);
-		break;
-		case 3:
-			flush_delayed_work_sync(&dbs_info->work);
-		break;
-		case 4:
-			schedule_delayed_work(&dbs_info->work, 0);
-			flush_delayed_work(&dbs_info->work);
-		break;
-		default:
-			// nao faz nada se for zero... :-P
-		break;
-	}
-
-	mutex_unlock(&raw_mutex);
-	return ret;
-}
-
-/**
  * Sets the CPU frequency to freq.
  */
 static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq)
@@ -166,9 +122,16 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 
 	dprintk("cpufreq_raw_set for cpu %u, freq %u kHz\n", policy->cpu, freq);
 
-	printk("DEBUG:RAWLINSON - set_frequency for cpu %u, freq %u kHz\n", policy->cpu, freq);
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u - %s -> flagReturnPreemption(%d) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->flagReturnPreemption, task->pid);
 
 	mutex_lock(&raw_mutex);
+
+	// Se alguma frequencia foi definida... então o monitor não precisa mais verificar a tarefa que foi sinalizada... \o/
+	if(task && task->pid > 0)
+	{
+		task->flagReturnPreemption = 0;
+	}
+
 	if (!per_cpu(cpu_is_managed, policy->cpu))
 		goto err;
 
@@ -197,10 +160,6 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 }
 
 /**
- * cpufreq_raw_set - set the CPU frequency
- * @policy: pointer to policy struct where freq is being set
- * @freq: target frequency in kHz
- *
  * Sets the CPU frequency to freq.
  */
 static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
@@ -212,6 +171,7 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 	printk("DEBUG:RAWLINSON - cpufreq_raw_set for cpu %u, freq %u kHz\n", policy->cpu, freq);
 
 	mutex_lock(&raw_mutex);
+
 	if (!per_cpu(cpu_is_managed, policy->cpu))
 		goto err;
 
@@ -236,6 +196,7 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 
  err:
 	mutex_unlock(&raw_mutex);
+
 	return ret;
 }
 
@@ -246,55 +207,50 @@ static ssize_t show_raw_speed(struct cpufreq_policy *policy, char *buf)
 
 static void do_dbs_timer(struct work_struct *work)
 {
-	struct task_struct *g, *task, *task_current;
+	struct task_struct *g, *task;
 
 	struct cpu_dbs_info_s *dbs_info = container_of(work, struct cpu_dbs_info_s, work.work);
+	unsigned int cpu_frequency = 800000;
+
 	int delay = usecs_to_jiffies(MIN_SAMPLING_RATE);
 
 	mutex_lock(&dbs_info->timer_mutex);
 
-	//TODO:RAWLINSON - APENAS DEBUG... :-P
+	cont_kraw = cont_kraw + 1;
+
+	//printk("DEBUG:RAWLINSON - MONITORANDO... ID(%lu)\n", cont_kraw);
+
 	// O loop abaixo percorre todas as tarefas de dentro do linux... tarefas pais e filhos...
-	task_current = current; // Pega o processo corrente... ou seja o Kworker...
-
-	if(signaled_task)
-	{
-		printk("DEBUG:RAWLINSON - SIGNALED TASK - do_dbs_timer for cpu(%u) %u MHz-> TASK PID: %d -> Running(%lu) --> (%d)\n", task_cpu(signaled_task), signaled_task->cpu_frequency, signaled_task->pid, signaled_task->state, signaled_task->flagReturnPreemption);
-	}
-
 	do_each_thread(g, task)
 	{
-		//if(task->flagReturnPreemption && task->pid == signaled_task->pid && task->state == TASK_RUNNING)
-		if(task->flagReturnPreemption)
+		if(task->flagReturnPreemption && task->cpu_frequency > 0 && task->state == TASK_RUNNING && task_cpu(task) == CPUID_RTAI)
 		{
-			printk("DEBUG:RAWLINSON - RAW GOVERNOR - do_dbs_timer for cpu(%u) %u MHz-> TASK PID: %d -> Running(%lu) --> (%d)\n", task_cpu(task), task->cpu_frequency, task->pid, task->state, task->flagReturnPreemption);
+			printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> DESC(%s) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task), task->cpu_frequency, task->comm, task->pid, task->state, task->flagReturnPreemption, task->state_task_period);
 
-			signaled_task = NULL;
-			task->flagReturnPreemption = 0; // O Governor mudou a frequencia do processador visando diminuir o tempo de folga da tarefa...
+			if(task->state_task_period == TASK_PERIOD_RUNNING && task->rwcec > 0)// Se a tarefa esta executando e tem algo para processar ainda...
+			{
+				//TODO: Fazer calculo de frequencia aqui...
+			}
 		}
+		task->flagReturnPreemption = 0; // O Governor desmarca a flag de preempcao, pois ela ja foi verificada.
 	} while_each_thread(g, task);
-
-//	printk("DEBUG:RAWLINSON - RAW GOVERNOR - do_dbs_timer for cpu(%u) %u MHz-> TASK PID: %d -> Running(%lu) --> (%d)\n", task_cpu(signaled_task), signaled_task->cpu_frequency, signaled_task->pid, signaled_task->state, signaled_task->flagReturnPreemption);
-//	if(signaled_task && signaled_task->flagReturnPreemption && signaled_task->pid > 0 && signaled_task->state == TASK_RUNNING)
-//	{
-//		printk("DEBUG:RAWLINSON - RAW GOVERNOR - do_dbs_timer for cpu(%u) %u MHz-> TASK PID: %d -> Running(%lu) --> (%d)\n", task_cpu(signaled_task), signaled_task->cpu_frequency, signaled_task->pid, signaled_task->state, signaled_task->flagReturnPreemption);
-//
-//		signaled_task = NULL;
-//		signaled_task->flagReturnPreemption = 0; // O Governor mudou a frequencia do processador visando diminuir o tempo de folga da tarefa...
-//	}
 
 	queue_delayed_work_on(dbs_info->cpu, kraw_wq, &dbs_info->work, delay);
 	mutex_unlock(&dbs_info->timer_mutex);
+
+	mutex_lock(&raw_mutex);
+	__cpufreq_driver_target(dbs_info->cur_policy, cpu_frequency, CPUFREQ_RELATION_H);
+	mutex_unlock(&raw_mutex);
 }
 
 static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 {
-	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(MIN_SAMPLING_RATE);
+
 	dbs_info->sample_type = DBS_NORMAL_SAMPLE;
 
 	// Inicializando a variavel que contera os dados da tarefa que voltou de preempcao no sistema.
-	signaled_task = NULL;
+	cont_kraw = 0;
 
 	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
 
@@ -416,7 +372,6 @@ struct cpufreq_governor cpufreq_gov_raw = {
 	.store_setspeed		= cpufreq_raw_set,
 	.set_frequency 		= set_frequency,
 	.show_setspeed		= show_raw_speed,
-	.set_signaled_task	= set_signaled_task,
 	.owner				= THIS_MODULE,
 };
 
