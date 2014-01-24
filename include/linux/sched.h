@@ -1760,6 +1760,9 @@ static inline int is_global_init(struct task_struct *tsk)
 	return tsk->pid == 1;
 }
 
+//TODO:RAWLINSON...
+struct task_struct *get_current_task(int cpu);
+
 /*
  * is_container_init:
  * check whether in the task is init in its own pid namespace.

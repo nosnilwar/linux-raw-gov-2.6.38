@@ -43,7 +43,7 @@
  * this governor will not work.
  * All times here are in uS.
  */
-#define MIN_SAMPLING_RATE_RATIO			(100)
+#define MIN_SAMPLING_RATE_RATIO			(10)
 
 static unsigned int min_sampling_rate;
 
@@ -536,13 +536,14 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 
 static void do_dbs_timer(struct work_struct *work)
 {
-	struct task_struct *g, *task, *target_task = NULL;
+	struct task_struct *task_cur;
+
+//	struct task_struct *g, *task, *target_task = NULL;
 
 	struct cpu_dbs_info_s *dbs_info = container_of(work, struct cpu_dbs_info_s, work.work);
 	struct cpufreq_policy *policy = dbs_info->cur_policy;
 	unsigned int cpu_frequency = 800000;
-
-	unsigned int flagSetFrequency = 0;
+	unsigned int flagSetFrequency;
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
@@ -552,30 +553,41 @@ static void do_dbs_timer(struct work_struct *work)
 	cont_kraw = cont_kraw + 1;
 
 	// O loop abaixo percorre todas as tarefas de dentro do linux... tarefas pais e filhos...
-	do_each_thread(g, task)
-	{
-		if(task->flagReturnPreemption && task->cpu_frequency > 0 && task->state == TASK_RUNNING && task_cpu(task) == CPUID_RTAI && task->state_task_period == TASK_PERIOD_RUNNING && task->rwcec > 0)// Se a tarefa esta executando e tem algo para processar ainda...
-		{
-			//TODO: Fazer calculo de frequencia aqui...
-			target_task = task;
-			flagSetFrequency = 1;
-
-			printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> DESC(%s) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task), task->cpu_frequency, task->comm, task->pid, task->state, task->flagReturnPreemption, task->state_task_period);
-
-			task->flagReturnPreemption = 0; // O Governor desmarca a flag de preempcao, pois ela ja foi verificada.
-		}
-	} while_each_thread(g, task);
+//	do_each_thread(g, task)
+//	{
+//		if(task->flagReturnPreemption && task->cpu_frequency > 0 && task->state == TASK_RUNNING && task_cpu(task) == CPUID_RTAI && task->state_task_period == TASK_PERIOD_RUNNING && task->rwcec > 0)// Se a tarefa esta executando e tem algo para processar ainda...
+//		{
+//			//TODO: Fazer calculo de frequencia aqui...
+//			target_task = task;
+//			flagSetFrequency = 1;
+//
+//			printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> DESC(%s) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task), task->cpu_frequency, task->comm, task->pid, task->state, task->flagReturnPreemption, task->state_task_period);
+//
+//			task->flagReturnPreemption = 0; // O Governor desmarca a flag de preempcao, pois ela ja foi verificada.
+//		}
+//	} while_each_thread(g, task);
 
 	queue_delayed_work_on(CPU_KRAW, kraw_wq, &dbs_info->work, delay);
 
-	if(flagSetFrequency)
+	// Verifica se a tarefa em execucao retornou de uma preempcao...
+	flagSetFrequency = 0;
+	task_cur = get_current_task(CPUID_RTAI);
+	if(task_cur->flagReturnPreemption && task_cur->cpu_frequency > 0 && task_cur->state == TASK_RUNNING
+			&& task_cur->state_task_period == TASK_PERIOD_RUNNING && task_cur->rwcec > 0)// Se a tarefa esta executando e tem algo para processar ainda...
+	{
+		printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> RWCEC(%lu) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task_cur), policy->cur, task_cur->rwcec, task_cur->pid, task_cur->state, task_cur->flagReturnPreemption, task_cur->state_task_period);
+
+		task_cur->flagReturnPreemption = 0; // O Governor desmarca a flag de preempcao, pois ela ja foi verificada.
+		flagSetFrequency = 1;
+	}
+	mutex_unlock(&dbs_info->timer_mutex);
+
+	if(flagSetFrequency && task_cur->flagReturnPreemption) //TODO: Fazer o calculo de frequencia aqui...
 	{
 		mutex_lock(&raw_mutex);
 		__cpufreq_driver_target(policy, cpu_frequency, CPUFREQ_RELATION_H);
-		printk("[RAW MONITOR] (%lu) - RWCEC(%lu) -> DESC(%s) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, target_task->rwcec, target_task->comm, target_task->pid, target_task->state, target_task->flagReturnPreemption, target_task->state_task_period);
 		mutex_unlock(&raw_mutex);
 	}
-	mutex_unlock(&dbs_info->timer_mutex);
 }
 
 static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)

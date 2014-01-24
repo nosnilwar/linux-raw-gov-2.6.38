@@ -2778,9 +2778,7 @@ static void fire_sched_in_preempt_notifiers(struct task_struct *curr)
 {
 }
 
-static void
-fire_sched_out_preempt_notifiers(struct task_struct *curr,
-				 struct task_struct *next)
+static void fire_sched_out_preempt_notifiers(struct task_struct *curr, struct task_struct *next)
 {
 }
 
@@ -3981,6 +3979,18 @@ pick_next_task(struct rq *rq)
 
 	BUG(); /* the idle class will always have a runnable task */
 }
+
+struct task_struct *get_current_task(int cpu)
+{
+	struct rq *rq;
+	struct task_struct *current_task;
+
+	rq = cpu_rq(cpu);
+	current_task = rq->curr;
+
+	return current_task;
+}
+EXPORT_SYMBOL(get_current_task);
 
 /*
  * schedule() is the main scheduler function.
