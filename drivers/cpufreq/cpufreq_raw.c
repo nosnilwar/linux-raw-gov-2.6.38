@@ -43,7 +43,7 @@
  * this governor will not work.
  * All times here are in uS.
  */
-#define MIN_SAMPLING_RATE_RATIO			(2)
+#define MIN_SAMPLING_RATE_RATIO			(1)
 
 static unsigned int min_sampling_rate;
 
@@ -463,7 +463,7 @@ static void do_dbs_timer(struct work_struct *work)
 
 	struct cpu_dbs_info_s *dbs_info = container_of(work, struct cpu_dbs_info_s, work.work);
 	struct cpufreq_policy *policy = dbs_info->cur_policy;
-	unsigned int cpu_frequency = 1800000;
+	unsigned int cpu_frequency = 800000;
 	unsigned int flagSetFrequency = 0;
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
@@ -472,6 +472,8 @@ static void do_dbs_timer(struct work_struct *work)
 	mutex_lock(&dbs_info->timer_mutex);
 
 	cont_kraw = cont_kraw + 1;
+
+	//printk("[RAW MONITOR] (%lu) - DELAY(%d)\n", cont_kraw, delay);
 
 	// Verifica se a tarefa em execucao retornou de uma preempcao...
 	task_cur = get_current_task(CPUID_RTAI);
@@ -485,14 +487,19 @@ static void do_dbs_timer(struct work_struct *work)
 		flagSetFrequency = 1;
 	}
 
+	queue_delayed_work_on(CPU_KRAW, kraw_wq, &dbs_info->work, delay);
+
+	mutex_lock(&dbs_mutex);
 	if(flagSetFrequency && !task_cur->flagReturnPreemption && task_cur->state_task_period == TASK_PERIOD_RUNNING)
 	{
 		//TODO: Fazer o calculo de frequencia aqui...
 		if(cpu_frequency != policy->cur)
+		{
 			cpufreq_driver_target(policy, cpu_frequency, CPUFREQ_RELATION_H);
+			printk("[RAW MONITOR SET_FREQ] (%lu) - do_dbs_timer(%u) for cpu %u, freq %u kHz\n", cont_kraw, cpu_frequency, policy->cpu, policy->cur);
+		}
 	}
-
-	queue_delayed_work_on(CPU_KRAW, kraw_wq, &dbs_info->work, delay);
+	mutex_unlock(&dbs_mutex);
 	mutex_unlock(&dbs_info->timer_mutex);
 }
 
@@ -597,11 +604,12 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			if (latency == 0)
 				latency = 1;
 			/* Bring kernel and HW constraints together */
-			min_sampling_rate = max(min_sampling_rate,
-					MIN_LATENCY_MULTIPLIER * latency);
-			dbs_tuners_ins.sampling_rate =
-				max(min_sampling_rate,
-				    latency * LATENCY_MULTIPLIER);
+//			min_sampling_rate = max(min_sampling_rate,
+//					MIN_LATENCY_MULTIPLIER * latency);
+//			dbs_tuners_ins.sampling_rate =
+//				max(min_sampling_rate,
+//				    latency * LATENCY_MULTIPLIER);
+			dbs_tuners_ins.sampling_rate = min_sampling_rate;
 			dbs_tuners_ins.io_is_busy = should_io_be_busy();
 		}
 		mutex_unlock(&dbs_mutex);
@@ -659,22 +667,23 @@ static int __init cpufreq_gov_raw_init(void)
 
 	idle_time = get_cpu_idle_time_us(cpu, &wall);
 	put_cpu();
-	if (idle_time != -1ULL) {
-		/* Idle micro accounting is supported. Use finer thresholds */
-		dbs_tuners_ins.up_threshold = MICRO_FREQUENCY_UP_THRESHOLD;
-		dbs_tuners_ins.down_differential =
-					MICRO_FREQUENCY_DOWN_DIFFERENTIAL;
-		/*
-		 * In no_hz/micro accounting case we set the minimum frequency
-		 * not depending on HZ, but fixed (very low). The deferred
-		 * timer might skip some samples if idle/sleeping as needed.
-		*/
-		min_sampling_rate = MICRO_FREQUENCY_MIN_SAMPLE_RATE;
-	} else {
-		/* For correct statistics, we need 10 ticks for each measure */
-		min_sampling_rate =
-			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
-	}
+//	if (idle_time != -1ULL) {
+//		/* Idle micro accounting is supported. Use finer thresholds */
+//		dbs_tuners_ins.up_threshold = MICRO_FREQUENCY_UP_THRESHOLD;
+//		dbs_tuners_ins.down_differential =
+//					MICRO_FREQUENCY_DOWN_DIFFERENTIAL;
+//		/*
+//		 * In no_hz/micro accounting case we set the minimum frequency
+//		 * not depending on HZ, but fixed (very low). The deferred
+//		 * timer might skip some samples if idle/sleeping as needed.
+//		*/
+//		min_sampling_rate = MICRO_FREQUENCY_MIN_SAMPLE_RATE;
+//	} else {
+//		/* For correct statistics, we need 10 ticks for each measure */
+//		min_sampling_rate =
+//			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
+//	}
+	min_sampling_rate = MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(1);
 
 	kraw_wq = create_workqueue("kraw");
 	if (!kraw_wq) {
