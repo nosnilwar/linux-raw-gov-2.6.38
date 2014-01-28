@@ -1232,6 +1232,7 @@ enum perf_event_task_context {
 #define TASK_PERIOD_UNDEFINED	0
 #define TASK_PERIOD_RUNNING		1
 #define TASK_PERIOD_FINISHED	2
+typedef long long TYPE_RT_TIME;
 
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
@@ -1255,6 +1256,12 @@ struct task_struct {
 	unsigned int cpu_voltage;
 	unsigned int last_cpu_frequency;
 	unsigned int last_cpu_voltage;
+
+	TYPE_RT_TIME period;
+	TYPE_RT_TIME resume_time;
+	TYPE_RT_TIME periodic_resume_time;
+	TYPE_RT_TIME yield_time;
+	int rr_quantum, rr_remaining;
 	/* TODO:RAWLINSON - FIM DAS DEFINICOES...*/
 
 	int lock_depth;		/* BKL lock depth */
