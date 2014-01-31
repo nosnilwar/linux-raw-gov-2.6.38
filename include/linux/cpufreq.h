@@ -165,13 +165,17 @@ static inline unsigned long cpufreq_scale(unsigned long old, u_int div, u_int mu
 #define CPUFREQ_GOV_STOP   2
 #define CPUFREQ_GOV_LIMITS 3
 
+//TODO:RAWLINSON...
+#define CPUFREQ_CONST_RAW_GOVERNOR_NAME "raw"
+#define CPUFREQ_UPDATE_RATE_TIMER 50 // taxa de atualizacao do timer para o RAW GOVERNOR...
+
 struct cpufreq_governor {
 	char	name[CPUFREQ_NAME_LEN];
 	int 	(*governor)	(struct cpufreq_policy *policy, unsigned int event);
 	ssize_t	(*show_setspeed)	(struct cpufreq_policy *policy, char *buf);
 	int 	(*store_setspeed)	(struct cpufreq_policy *policy, unsigned int freq);
 	int		(*set_frequency)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq);
-	int		(*update_rt_smp_time_h)	(unsigned int cpuid, long long tick_time);
+	int		(*update_rt_smp_time_h)	(long long tick_time);
 	int		(*set_preemption_resume_time)	(struct task_struct *task);
 	unsigned int max_transition_latency; /* HW must be able to switch to
 			next freq faster than this value in nano secs or we

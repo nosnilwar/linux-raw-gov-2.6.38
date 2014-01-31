@@ -88,7 +88,7 @@ static DEFINE_MUTEX(raw_mutex);
 static struct workqueue_struct	*kraw_wq;
 
 unsigned long cont_kraw;
-TYPE_RT_TIME array_rt_smp_time_h[NR_CPUS]; // possui o timers dos processadores do sistema atualizados.
+TYPE_RT_TIME tick_timer_rtai; // possui o timer do RTAI atualizado...
 
 static struct dbs_tuners {
 	unsigned int sampling_rate;
@@ -377,7 +377,7 @@ static struct attribute *dbs_attributes[] = {
 
 static struct attribute_group dbs_attr_group = {
 	.attrs = dbs_attributes,
-	.name = "raw",
+	.name = CPUFREQ_CONST_RAW_GOVERNOR_NAME,
 };
 
 /*** delete after deprecation time ***/
@@ -420,30 +420,14 @@ static struct attribute_group dbs_attr_group_old = {
 /************************** sysfs end ************************/
 
 /**
- * Inicializa os timers de tempo real dos processadores.
- */
-void init_rt_smp_time_h(void)
-{
-	unsigned int cpuid = 0;
-	for_each_online_cpu(cpuid) {
-		array_rt_smp_time_h[cpuid] = 0;
-	}
-}
-
-/**
  * Atualiza os timers de tempo real dos processadores para o melhor gerenciamento do RAW GOVERNOR.
  */
-static int update_rt_smp_time_h(unsigned int cpuid, TYPE_RT_TIME tick_time)
+static int update_rt_smp_time_h(TYPE_RT_TIME tick_time)
 {
 	// Atribui a tarefa o timer do processador no instante que ocorreu a preempcao.
 	mutex_lock(&raw_mutex);
-	if((cpuid >= 0 && cpuid < NR_CPUS) && tick_time > 0)
-	{
-		array_rt_smp_time_h[cpuid] = tick_time;
-	}
+	tick_timer_rtai = tick_time;
 	mutex_unlock(&raw_mutex);
-
-	printk("DEBUG:RAWLINSON - RAW GOVERNOR - update_rt_smp_time_h -> CPUID(%d) -> TIMER(%llu)\n", cpuid, array_rt_smp_time_h[cpuid]);
 	return 1;
 }
 
@@ -454,14 +438,12 @@ static int update_rt_smp_time_h(unsigned int cpuid, TYPE_RT_TIME tick_time)
  */
 static int set_preemption_resume_time(struct task_struct *task)
 {
-	unsigned int cpuid = task_cpu(task);
-
 	// Atribui a tarefa o timer do processador no instante que ocorreu a preempcao.
 	mutex_lock(&raw_mutex);
 	if(task && task->pid > 0)
 	{
 		task->flagSetPreemptionResumeTime = 0;
-		task->preemption_resume_time = array_rt_smp_time_h[cpuid];
+		task->preemption_resume_time = tick_timer_rtai;
 	}
 	mutex_unlock(&raw_mutex);
 
@@ -582,8 +564,8 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
 
-	if (num_online_cpus() > 1)
-		delay -= jiffies % delay;
+//	if (num_online_cpus() > 1)
+//		delay -= jiffies % delay;
 
 	dbs_info->sample_type = DBS_NORMAL_SAMPLE;
 	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
@@ -724,7 +706,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 static
 #endif
 struct cpufreq_governor cpufreq_gov_raw = {
-       .name						= "raw",
+       .name						= CPUFREQ_CONST_RAW_GOVERNOR_NAME, // Valor => "raw"
        .governor               		= cpufreq_governor_dbs,
 	   .store_setspeed		   		= cpufreq_raw_set,
 	   .set_frequency 		   		= set_frequency,
@@ -760,9 +742,6 @@ static int __init cpufreq_gov_raw_init(void)
 //			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
 //	}
 	min_sampling_rate = MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(1);
-
-	// Inicializando os timers dos processadores...
-	init_rt_smp_time_h();
 
 	kraw_wq = create_workqueue("kraw");
 	if (!kraw_wq) {
