@@ -527,13 +527,6 @@ static void do_dbs_timer(struct work_struct *work)
 
 	//printk("[RAW MONITOR] (%lu) - DELAY(%d)\n", cont_kraw, delay);
 
-	// Verificando se tem alguma tarefa preemptada que necessita ser atualizado o timer em que a tarefa foi preemptada.
-	do_each_thread(g, task)
-	{
-		if(task->flagSetPreemptionResumeTime && task->rwcec > 0 && task->period > 0) // Significa que foi preemptada uma tarefa de tempo real do RTAI.
-			set_preemption_resume_time(task);
-	} while_each_thread(g, task);
-
 	// Verifica se a tarefa em execucao retornou de uma preempcao...
 	task_cur = get_current_task(CPUID_RTAI);
 
@@ -543,7 +536,7 @@ static void do_dbs_timer(struct work_struct *work)
 	 * Verificando se a tarefa que estah em executacao agora... estah retornando de uma preempcao...
 	 * caso positivo... o RAW GOVERNOR avalia a necessecidade de se aumentar ou diminuir a frequencia do processador.
 	 */
-	if(task_cur->flagReturnPreemption && task_cur->state == TASK_RUNNING && task->period > 0
+	if(task_cur->flagReturnPreemption && task_cur->state == TASK_RUNNING && task_cur->period > 0
 			&& task_cur->state_task_period == TASK_PERIOD_RUNNING && task_cur->rwcec > 0) // Significa que uma tarefa de tempo real do RTAI estah retornando de preempcao.
 	{
 		printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> RWCEC(%lu) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task_cur), policy->cur, task_cur->rwcec, task_cur->pid, task_cur->state, task_cur->flagReturnPreemption, task_cur->state_task_period);
@@ -567,6 +560,20 @@ static void do_dbs_timer(struct work_struct *work)
 		}
 		mutex_unlock(&raw_mutex);
 	}
+
+	// Verificando se tem alguma tarefa preemptada que necessita ser atualizado o timer em que a tarefa foi preemptada.
+	do_each_thread(g, task)
+	{
+		// Significa que foi preemptada uma tarefa de tempo real do RTAI.
+		if(task->flagSetPreemptionResumeTime && task->rwcec > 0 && task->period > 0)
+		{
+			if(task->state == TASK_RUNNING)
+				set_preemption_resume_time(task);
+			else
+				task->flagSetPreemptionResumeTime = 0;
+		}
+	} while_each_thread(g, task);
+
 	mutex_unlock(&dbs_info->timer_mutex);
 }
 
