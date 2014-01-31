@@ -237,9 +237,22 @@ extern char ___assert_task_state[1 - 2*!!(
 	do { set_mb((tsk)->state, (state_value)); if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_task_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", tsk->comm, tsk->pid, tsk->state, state_value); } while (0)
 */
 #define __set_task_state(tsk, state_value)		\
-	do { (tsk)->state = (state_value); if(state_value == TASK_INTERRUPTIBLE) (tsk)->flagReturnPreemption = 1; } while (0)
+	do { \
+		(tsk)->state = (state_value); \
+		if(state_value == TASK_INTERRUPTIBLE) { \
+			(tsk)->flagReturnPreemption = 1; \
+			(tsk)->flagSetPreemptionResumeTime = 1; \
+		} \
+	} while (0)
+
 #define set_task_state(tsk, state_value)		\
-	do { set_mb((tsk)->state, (state_value)); if(state_value == TASK_INTERRUPTIBLE) (tsk)->flagReturnPreemption = 1; } while (0)
+	do { \
+		set_mb((tsk)->state, (state_value)); \
+		if(state_value == TASK_INTERRUPTIBLE) { \
+			(tsk)->flagReturnPreemption = 1; \
+			(tsk)->flagSetPreemptionResumeTime = 1; \
+		} \
+	} while (0)
 
 /*
  * set_current_state() includes a barrier so that the write of current->state
@@ -262,10 +275,22 @@ extern char ___assert_task_state[1 - 2*!!(
 */
 
 #define __set_current_state(state_value)			\
-	do { current->state = (state_value); if(state_value == TASK_INTERRUPTIBLE) current->flagReturnPreemption = 1; } while (0)
+	do { \
+		current->state = (state_value); \
+		if(state_value == TASK_INTERRUPTIBLE) { \
+			current->flagReturnPreemption = 1; \
+			current->flagSetPreemptionResumeTime = 1; \
+		} \
+	} while (0)
 
 #define set_current_state(state_value)		\
-	do { set_mb(current->state, (state_value)); if(state_value == TASK_INTERRUPTIBLE) current->flagReturnPreemption = 1; } while (0)
+	do { \
+		set_mb(current->state, (state_value)); \
+		if(state_value == TASK_INTERRUPTIBLE) { \
+			current->flagReturnPreemption = 1; \
+			current->flagSetPreemptionResumeTime = 1; \
+		} \
+	} while (0)
 
 /* Task command name length */
 #define TASK_COMM_LEN 16
@@ -1243,15 +1268,14 @@ struct task_struct {
 
 	//TODO:RAWLINSON - Flag que indica ao RAW GOVERNOR que a tarefa acabou de voltar de uma preempcao.
 	unsigned int flagReturnPreemption;  // (1 - se a tarefa voltou de preempcao dentro do RTAI e 0 - caso contrário)
+	unsigned int flagSetPreemptionResumeTime;  // (1 - Se deve ser definido o timer em que ocorreu a preempcao da RT_TASK e 0 - caso contrário)
+	TYPE_RT_TIME preemption_resume_time; // timer do processador quando ocorreu a preempcao da tarefa.
 
 	/* TODO:RAWLINSON - VARIAVEIS DE CONTROLE E GERENCIAMENTO DO RAW GOVERNOR */
 	unsigned long tsk_wcec; // WCEC - Worst Case Execution Cycles - of the task
 	unsigned long rwcec; // RWCEC - Remaining Worst Case Execution Cycle
 	unsigned int state_task_period; // Estado da tarefa durante o periodo...
-							   	    // 0 - indefinida
-							   	    // 1 - tarefa rodando
-							   	    // 2 - tarefa finalizada
-
+							   	    // 0 - indefinida; 1 - tarefa rodando; 2 - tarefa finalizada
 	unsigned int cpu_frequency;
 	unsigned int cpu_voltage;
 	unsigned int last_cpu_frequency;

@@ -171,6 +171,8 @@ struct cpufreq_governor {
 	ssize_t	(*show_setspeed)	(struct cpufreq_policy *policy, char *buf);
 	int 	(*store_setspeed)	(struct cpufreq_policy *policy, unsigned int freq);
 	int		(*set_frequency)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq);
+	int		(*update_rt_smp_time_h)	(unsigned int cpuid, long long tick_time);
+	int		(*set_preemption_resume_time)	(struct task_struct *task);
 	unsigned int max_transition_latency; /* HW must be able to switch to
 			next freq faster than this value in nano secs or we
 			will fallback to performance governor */

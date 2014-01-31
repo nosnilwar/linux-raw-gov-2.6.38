@@ -80,14 +80,15 @@ static DEFINE_PER_CPU(struct cpu_dbs_info_s, od_cpu_dbs_info);
 static unsigned int dbs_enable;	/* number of CPUs using this policy */
 
 /*
- * dbs_mutex protects data in dbs_tuners_ins from concurrent changes on
+ * raw_mutex protects data in dbs_tuners_ins from concurrent changes on
  * different CPUs. It protects dbs_enable in governor start/stop.
  */
-static DEFINE_MUTEX(dbs_mutex);
+static DEFINE_MUTEX(raw_mutex);
 
 static struct workqueue_struct	*kraw_wq;
 
 unsigned long cont_kraw;
+TYPE_RT_TIME array_rt_smp_time_h[NR_CPUS]; // possui o timers dos processadores do sistema atualizados.
 
 static struct dbs_tuners {
 	unsigned int sampling_rate;
@@ -231,9 +232,9 @@ static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	dbs_tuners_ins.sampling_rate = max(input, min_sampling_rate);
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	return count;
 }
@@ -248,9 +249,9 @@ static ssize_t store_io_is_busy(struct kobject *a, struct attribute *b,
 	if (ret != 1)
 		return -EINVAL;
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	dbs_tuners_ins.io_is_busy = !!input;
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	return count;
 }
@@ -267,9 +268,9 @@ static ssize_t store_up_threshold(struct kobject *a, struct attribute *b,
 		return -EINVAL;
 	}
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	dbs_tuners_ins.up_threshold = input;
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	return count;
 }
@@ -283,7 +284,7 @@ static ssize_t store_sampling_down_factor(struct kobject *a,
 
 	if (ret != 1 || input > MAX_SAMPLING_DOWN_FACTOR || input < 1)
 		return -EINVAL;
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	dbs_tuners_ins.sampling_down_factor = input;
 
 	/* Reset down sampling multiplier in case it was active */
@@ -292,7 +293,7 @@ static ssize_t store_sampling_down_factor(struct kobject *a,
 		dbs_info = &per_cpu(od_cpu_dbs_info, j);
 		dbs_info->rate_mult = 1;
 	}
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	return count;
 }
@@ -312,9 +313,9 @@ static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
 	if (input > 1)
 		input = 1;
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	if (input == dbs_tuners_ins.ignore_nice) { /* nothing to do */
-		mutex_unlock(&dbs_mutex);
+		mutex_unlock(&raw_mutex);
 		return count;
 	}
 	dbs_tuners_ins.ignore_nice = input;
@@ -329,7 +330,7 @@ static ssize_t store_ignore_nice_load(struct kobject *a, struct attribute *b,
 			dbs_info->prev_cpu_nice = kstat_cpu(j).cpustat.nice;
 
 	}
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	return count;
 }
@@ -347,10 +348,10 @@ static ssize_t store_powersave_bias(struct kobject *a, struct attribute *b,
 	if (input > 1000)
 		input = 1000;
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	dbs_tuners_ins.powersave_bias = input;
 	raw_powersave_bias_init();
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	return count;
 }
@@ -419,23 +420,74 @@ static struct attribute_group dbs_attr_group_old = {
 /************************** sysfs end ************************/
 
 /**
+ * Inicializa os timers de tempo real dos processadores.
+ */
+void init_rt_smp_time_h(void)
+{
+	unsigned int cpuid = 0;
+	for_each_online_cpu(cpuid) {
+		array_rt_smp_time_h[cpuid] = 0;
+	}
+}
+
+/**
+ * Atualiza os timers de tempo real dos processadores para o melhor gerenciamento do RAW GOVERNOR.
+ */
+static int update_rt_smp_time_h(unsigned int cpuid, TYPE_RT_TIME tick_time)
+{
+	// Atribui a tarefa o timer do processador no instante que ocorreu a preempcao.
+	mutex_lock(&raw_mutex);
+	if((cpuid >= 0 && cpuid < NR_CPUS) && tick_time > 0)
+	{
+		array_rt_smp_time_h[cpuid] = tick_time;
+	}
+	mutex_unlock(&raw_mutex);
+
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - update_rt_smp_time_h -> CPUID(%d) -> TIMER(%llu)\n", cpuid, array_rt_smp_time_h[cpuid]);
+	return 1;
+}
+
+/**
+ * Define o timer no instante que ocorreu a preempcao da tarefa.
+ *
+ * OBS.: o objetivo é saber quanto tempo a tarefa ficou processando e quanto tempo a tarefa ficou preemptada.
+ */
+static int set_preemption_resume_time(struct task_struct *task)
+{
+	unsigned int cpuid = task_cpu(task);
+
+	// Atribui a tarefa o timer do processador no instante que ocorreu a preempcao.
+	mutex_lock(&raw_mutex);
+	if(task && task->pid > 0)
+	{
+		task->flagSetPreemptionResumeTime = 0;
+		task->preemption_resume_time = array_rt_smp_time_h[cpuid];
+	}
+	mutex_unlock(&raw_mutex);
+
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_preemption_resume_time -> PID (%d) -> TIMER(%llu)\n", task->pid, task->preemption_resume_time);
+	return 1;
+}
+
+/**
  * Sets the CPU frequency to freq.
  */
 static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq)
 {
 	int ret = -EINVAL;
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 
 	// Se alguma frequencia foi definida... então o monitor não precisa mais verificar a tarefa que foi sinalizada... \o/
 	if(task && task->pid > 0)
 	{
 		task->flagReturnPreemption = 0;
+		task->flagSetPreemptionResumeTime = 0;
 	}
 
 	__cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
 
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u - %s -> flagReturnPreemption(%d) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->flagReturnPreemption, task->pid);
 	return ret;
@@ -448,9 +500,9 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 {
 	int ret = -EINVAL;
 
-	mutex_lock(&dbs_mutex);
+	mutex_lock(&raw_mutex);
 	__cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
-	mutex_unlock(&dbs_mutex);
+	mutex_unlock(&raw_mutex);
 
 	printk("DEBUG:RAWLINSON - cpufreq_raw_set(%u) for cpu %u, freq %u kHz\n", freq, policy->cpu, policy->cur);
 
@@ -460,11 +512,11 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 static void do_dbs_timer(struct work_struct *work)
 {
 	struct task_struct *task_cur;
+	struct task_struct *g, *task;
 
 	struct cpu_dbs_info_s *dbs_info = container_of(work, struct cpu_dbs_info_s, work.work);
 	struct cpufreq_policy *policy = dbs_info->cur_policy;
 	unsigned int cpu_frequency = 800000;
-	unsigned int flagSetFrequency = 0;
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
 	int delay = usecs_to_jiffies(dbs_tuners_ins.sampling_rate);
@@ -475,31 +527,46 @@ static void do_dbs_timer(struct work_struct *work)
 
 	//printk("[RAW MONITOR] (%lu) - DELAY(%d)\n", cont_kraw, delay);
 
+	// Verificando se tem alguma tarefa preemptada que necessita ser atualizado o timer em que a tarefa foi preemptada.
+	do_each_thread(g, task)
+	{
+		if(task->flagSetPreemptionResumeTime && task->rwcec > 0 && task->period > 0) // Significa que foi preemptada uma tarefa de tempo real do RTAI.
+			set_preemption_resume_time(task);
+	} while_each_thread(g, task);
+
 	// Verifica se a tarefa em execucao retornou de uma preempcao...
 	task_cur = get_current_task(CPUID_RTAI);
-	if(task_cur->flagReturnPreemption && task_cur->cpu_frequency > 0 && task_cur->state == TASK_RUNNING
-			&& task_cur->state_task_period == TASK_PERIOD_RUNNING && task_cur->rwcec > 0)// Se a tarefa esta executando e tem algo para processar ainda...
-	{
-		printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> RWCEC(%lu) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task_cur), policy->cur, task_cur->rwcec, task_cur->pid, task_cur->state, task_cur->flagReturnPreemption, task_cur->state_task_period);
-		printk("[RAW MONITOR] (%lu) - PERIOD(%llu) RT(%llu) PRT(%llu) Y(%llu) Q(%d) R(%d)\n", cont_kraw, task_cur->period, task_cur->resume_time, task_cur->periodic_resume_time, task_cur->yield_time, task_cur->rr_quantum, task_cur->rr_remaining);
-
-		task_cur->flagReturnPreemption = 0; // O Governor desmarca a flag de preempcao, pois ela ja foi verificada.
-		flagSetFrequency = 1;
-	}
 
 	queue_delayed_work_on(CPU_KRAW, kraw_wq, &dbs_info->work, delay);
 
-	mutex_lock(&dbs_mutex);
-	if(flagSetFrequency && !task_cur->flagReturnPreemption && task_cur->state_task_period == TASK_PERIOD_RUNNING)
+	/*
+	 * Verificando se a tarefa que estah em executacao agora... estah retornando de uma preempcao...
+	 * caso positivo... o RAW GOVERNOR avalia a necessecidade de se aumentar ou diminuir a frequencia do processador.
+	 */
+	if(task_cur->flagReturnPreemption && task_cur->state == TASK_RUNNING && task->period > 0
+			&& task_cur->state_task_period == TASK_PERIOD_RUNNING && task_cur->rwcec > 0) // Significa que uma tarefa de tempo real do RTAI estah retornando de preempcao.
 	{
+		printk("[RAW MONITOR] (%lu) - CPU(%u) %u MHz -> RWCEC(%lu) -> PID(%d) -> STATE(%lu) -> FRP(%d) -> STP(%d)\n", cont_kraw, task_cpu(task_cur), policy->cur, task_cur->rwcec, task_cur->pid, task_cur->state, task_cur->flagReturnPreemption, task_cur->state_task_period);
+		printk("[RAW MONITOR] (%lu) - PERIOD(%llu) RT(%llu) preemption_resume_time(%llu) PRT(%llu)\n", cont_kraw, task_cur->period, task_cur->resume_time, task_cur->preemption_resume_time, task_cur->periodic_resume_time);
+		printk("[RAW MONITOR] (%lu) - Y(%llu) Q(%d) R(%d)\n", cont_kraw, task_cur->yield_time, task_cur->rr_quantum, task_cur->rr_remaining);
+
+		mutex_lock(&raw_mutex);
+
+		task_cur->flagReturnPreemption = 0; // O Governor desmarca a flag de preempcao, pois ela ja foi verificada.
+
+		//******************************************************************/
 		//TODO: Fazer o calculo de frequencia aqui...
+
+		//TODO: Ver o que será feito... ->flagSetPreemptionResumeTime = 0;
+		//******************************************************************/
+
 		if(cpu_frequency != policy->cur)
 		{
 			cpufreq_driver_target(policy, cpu_frequency, CPUFREQ_RELATION_H);
 			printk("[RAW MONITOR SET_FREQ] (%lu) - do_dbs_timer(%u) for cpu %u, freq %u kHz\n", cont_kraw, cpu_frequency, policy->cpu, policy->cur);
 		}
+		mutex_unlock(&raw_mutex);
 	}
-	mutex_unlock(&dbs_mutex);
 	mutex_unlock(&dbs_info->timer_mutex);
 }
 
@@ -561,11 +628,11 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		if ((!cpu_online(cpu)) || (!policy->cur))
 			return -EINVAL;
 
-		mutex_lock(&dbs_mutex);
+		mutex_lock(&raw_mutex);
 
 		rc = sysfs_create_group(&policy->kobj, &dbs_attr_group_old);
 		if (rc) {
-			mutex_unlock(&dbs_mutex);
+			mutex_unlock(&raw_mutex);
 			return rc;
 		}
 
@@ -595,7 +662,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			rc = sysfs_create_group(cpufreq_global_kobject,
 						&dbs_attr_group);
 			if (rc) {
-				mutex_unlock(&dbs_mutex);
+				mutex_unlock(&raw_mutex);
 				return rc;
 			}
 
@@ -612,7 +679,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			dbs_tuners_ins.sampling_rate = min_sampling_rate;
 			dbs_tuners_ins.io_is_busy = should_io_be_busy();
 		}
-		mutex_unlock(&dbs_mutex);
+		mutex_unlock(&raw_mutex);
 
 		mutex_init(&this_dbs_info->timer_mutex);
 		dbs_timer_init(this_dbs_info);
@@ -621,11 +688,11 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 	case CPUFREQ_GOV_STOP:
 		dbs_timer_exit(this_dbs_info);
 
-		mutex_lock(&dbs_mutex);
+		mutex_lock(&raw_mutex);
 		sysfs_remove_group(&policy->kobj, &dbs_attr_group_old);
 		mutex_destroy(&this_dbs_info->timer_mutex);
 		dbs_enable--;
-		mutex_unlock(&dbs_mutex);
+		mutex_unlock(&raw_mutex);
 		if (!dbs_enable)
 			sysfs_remove_group(cpufreq_global_kobject,
 					   &dbs_attr_group);
@@ -650,12 +717,14 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 static
 #endif
 struct cpufreq_governor cpufreq_gov_raw = {
-       .name                   = "raw",
-       .governor               = cpufreq_governor_dbs,
-	   .store_setspeed		   = cpufreq_raw_set,
-	   .set_frequency 		   = set_frequency,
-       .max_transition_latency = TRANSITION_LATENCY_LIMIT,
-       .owner                  = THIS_MODULE,
+       .name						= "raw",
+       .governor               		= cpufreq_governor_dbs,
+	   .store_setspeed		   		= cpufreq_raw_set,
+	   .set_frequency 		   		= set_frequency,
+	   .update_rt_smp_time_h   		= update_rt_smp_time_h,
+	   .set_preemption_resume_time 	= set_preemption_resume_time,
+       .max_transition_latency 		= TRANSITION_LATENCY_LIMIT,
+       .owner                  		= THIS_MODULE,
 };
 
 static int __init cpufreq_gov_raw_init(void)
@@ -684,6 +753,9 @@ static int __init cpufreq_gov_raw_init(void)
 //			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
 //	}
 	min_sampling_rate = MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(1);
+
+	// Inicializando os timers dos processadores...
+	init_rt_smp_time_h();
 
 	kraw_wq = create_workqueue("kraw");
 	if (!kraw_wq) {
