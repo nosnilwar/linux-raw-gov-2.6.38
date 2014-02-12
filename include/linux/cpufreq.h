@@ -167,7 +167,7 @@ static inline unsigned long cpufreq_scale(unsigned long old, u_int div, u_int mu
 
 //TODO:RAWLINSON...
 #define CPUFREQ_CONST_RAW_GOVERNOR_NAME "raw"
-#define CPUFREQ_UPDATE_RATE_TIMER 50 // taxa de atualizacao do timer para o RAW GOVERNOR...
+#define CPUFREQ_UPDATE_RATE_TIMER 500 // taxa de atualizacao do timer para o RAW GOVERNOR...
 
 struct cpufreq_governor {
 	char	name[CPUFREQ_NAME_LEN];
@@ -176,7 +176,6 @@ struct cpufreq_governor {
 	int 	(*store_setspeed)	(struct cpufreq_policy *policy, unsigned int freq);
 	int		(*set_frequency)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq);
 	int		(*update_rt_smp_time_h)	(long long tick_time);
-	int		(*set_preemption_resume_time)	(struct task_struct *task);
 	unsigned int max_transition_latency; /* HW must be able to switch to
 			next freq faster than this value in nano secs or we
 			will fallback to performance governor */

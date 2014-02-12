@@ -241,7 +241,6 @@ extern char ___assert_task_state[1 - 2*!!(
 		(tsk)->state = (state_value); \
 		if(state_value == TASK_INTERRUPTIBLE) { \
 			(tsk)->flagReturnPreemption = 1; \
-			(tsk)->flagSetPreemptionResumeTime = 1; \
 		} \
 	} while (0)
 
@@ -250,7 +249,6 @@ extern char ___assert_task_state[1 - 2*!!(
 		set_mb((tsk)->state, (state_value)); \
 		if(state_value == TASK_INTERRUPTIBLE) { \
 			(tsk)->flagReturnPreemption = 1; \
-			(tsk)->flagSetPreemptionResumeTime = 1; \
 		} \
 	} while (0)
 
@@ -279,7 +277,6 @@ extern char ___assert_task_state[1 - 2*!!(
 		current->state = (state_value); \
 		if(state_value == TASK_INTERRUPTIBLE) { \
 			current->flagReturnPreemption = 1; \
-			current->flagSetPreemptionResumeTime = 1; \
 		} \
 	} while (0)
 
@@ -288,7 +285,6 @@ extern char ___assert_task_state[1 - 2*!!(
 		set_mb(current->state, (state_value)); \
 		if(state_value == TASK_INTERRUPTIBLE) { \
 			current->flagReturnPreemption = 1; \
-			current->flagSetPreemptionResumeTime = 1; \
 		} \
 	} while (0)
 
@@ -1268,8 +1264,6 @@ struct task_struct {
 
 	//TODO:RAWLINSON - Flag que indica ao RAW GOVERNOR que a tarefa acabou de voltar de uma preempcao.
 	unsigned int flagReturnPreemption;  // (1 - se a tarefa voltou de preempcao dentro do RTAI e 0 - caso contrário)
-	unsigned int flagSetPreemptionResumeTime;  // (1 - Se deve ser definido o timer em que ocorreu a preempcao da RT_TASK e 0 - caso contrário)
-	TYPE_RT_TIME preemption_resume_time; // timer do processador quando ocorreu a preempcao da tarefa.
 
 	/* TODO:RAWLINSON - VARIAVEIS DE CONTROLE E GERENCIAMENTO DO RAW GOVERNOR */
 	unsigned long tsk_wcec; // WCEC - Worst Case Execution Cycles - of the task
