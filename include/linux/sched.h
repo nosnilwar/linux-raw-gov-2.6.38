@@ -1273,6 +1273,7 @@ struct task_struct {
 	unsigned long rwcec; // RWCEC - Remaining Worst Case Execution Cycle
 	unsigned int state_task_period; // Estado da tarefa durante o periodo...
 							   	    // 0 - indefinida; 1 - tarefa rodando; 2 - tarefa finalizada
+	unsigned int cpu_frequency_min; // Frequencia minima a ser utilizada pela tarefa...
 	unsigned int cpu_frequency;
 	unsigned int cpu_voltage;
 	unsigned int last_cpu_frequency;

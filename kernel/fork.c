@@ -1085,6 +1085,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->tsk_wcec = 0;
 	p->rwcec = 0;
 	p->state_task_period = TASK_PERIOD_UNDEFINED;
+	p->cpu_frequency_min = 0;
 	p->cpu_frequency = 0;
 	p->cpu_voltage = 0;
 	p->last_cpu_frequency = 0;

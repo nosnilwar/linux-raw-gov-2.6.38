@@ -571,7 +571,7 @@ static void do_dbs_timer(struct work_struct *work)
 		printk("[RAW MONITOR SET_FREQ] (%lu) - Frequencia Calculada(%u) - Frequencia da Tabela(%u)\n", cont_kraw, cpu_frequency_target, cpu_frequency_table);
 		//******************************************************************/
 
-		if(cpu_frequency_table != policy->cur)
+		if(cpu_frequency_table >= task_cur->cpu_frequency_min && cpu_frequency_table != policy->cur)
 		{
 			task_cur->cpu_frequency = cpu_frequency_table; // (KHz) Nova frequencia para a tarefa... visando diminuir o tempo de folga da tarefa...
 			task_cur->flagGovChangeFrequency = 1; // O Governor estah alterando a frequencia original da tarefa.
