@@ -445,6 +445,7 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 	if(task && task->pid > 0)
 	{
 		task->flagReturnPreemption = 0;
+		task->flagGovChangeFrequency = 0;
 	}
 
 	__cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
@@ -469,6 +470,36 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 	printk("DEBUG:RAWLINSON - cpufreq_raw_set(%u) for cpu %u, freq %u kHz\n", freq, policy->cpu, policy->cur);
 
 	return ret;
+}
+
+// FUNCAO COPIADA DO RTAI_HAL.H
+static inline long raw_imuldiv (long i, long mult, long div)
+{
+    /* Returns (int)i = (int)i*(int)(mult)/(int)div. */
+	i = (i * mult) / div;
+    return i;
+}
+
+static inline long long llimd(long long ll, long mult, long div)
+{
+	return raw_imuldiv(ll, mult, div);
+}
+
+// FUNCAO COPIADA DO RTAI_HAL.H
+static TYPE_RT_TIME count2nano(TYPE_RT_TIME counts, unsigned long timer_freq)
+{
+	int sign;
+
+	if (counts >= 0) {
+		sign = 1;
+	} else {
+		sign = 0;
+		counts = - counts;
+	}
+
+	//TODO: O TIMER_FREQ estah prevendo apenas o modo rt_set_periodic_mode e nao o rt_set_oneshot_mode, infelizmente. :'(
+	counts = llimd(counts, 1000000000, timer_freq);
+	return sign ? counts : - counts;
 }
 
 static void do_dbs_timer(struct work_struct *work)
@@ -501,8 +532,8 @@ static void do_dbs_timer(struct work_struct *work)
 	 * Verificando se a tarefa que estah em executacao agora... estah retornando de uma preempcao...
 	 * caso positivo... o RAW GOVERNOR avalia a necessecidade de se aumentar ou diminuir a frequencia do processador.
 	 */
-	if(task_cur->flagReturnPreemption && task_cur->state == TASK_RUNNING && task_cur->period > 0
-			&& task_cur->state_task_period == TASK_PERIOD_RUNNING && task_cur->rwcec > 0) // Significa que uma tarefa de tempo real do RTAI estah retornando de preempcao.
+	if(task_cur->flagReturnPreemption && task_cur->state == TASK_RUNNING && task_cur->period > 0 && task_cur->timer_freq > 0
+	   && task_cur->state_task_period == TASK_PERIOD_RUNNING && task_cur->rwcec > 0) // Significa que uma tarefa de tempo real do RTAI estah retornando de preempcao.
 	{
 		mutex_lock(&raw_mutex_timer);
 		tick_timer_atual = tick_timer_rtai;
@@ -521,12 +552,16 @@ static void do_dbs_timer(struct work_struct *work)
 		* para que a tarefa conclua seu processamento dentro do seu deadline.
 		****************************************************************/
 		ciclosClockRestantes = task_cur->rwcec; // já foi verificado se eh maior que zero.
-		tempoRestanteProcessamento = (task_cur->periodic_resume_time + task_cur->period) - (tick_timer_atual + CPUFREQ_UPDATE_RATE_TIMER); // Foi acrescentado o "CPUFREQ_UPDATE_RATE_TIMER", pois o tick pode estar atrasado (ou seja, uma margem de erro).
+		tempoRestanteProcessamento = ((task_cur->periodic_resume_time + task_cur->period) - (tick_timer_atual + CPUFREQ_UPDATE_RATE_TIMER)); // Foi acrescentado o "CPUFREQ_UPDATE_RATE_TIMER", pois o tick pode estar atrasado (ou seja, uma margem de erro).
+		tempoRestanteProcessamento = count2nano(tempoRestanteProcessamento, task_cur->timer_freq) / 10^9; // Transformando de count -> nano (/10^9) para -> segundos.
 		if(tempoRestanteProcessamento <= 0)
 		{
 			tempoRestanteProcessamento = 1;
 		}
-		cpu_frequency_target = ciclosClockRestantes / tempoRestanteProcessamento;
+
+		printk("[RAW MONITOR SET_FREQ] (%lu) - cpu_frequency_target = ciclosClockRestantes(%lld) / tempoRestanteProcessamento(%lld) -> TIMER_FREQ(%ld)\n", cont_kraw, ciclosClockRestantes, tempoRestanteProcessamento, task_cur->timer_freq);
+		cpu_frequency_target = ciclosClockRestantes / tempoRestanteProcessamento; // Unidade: Ciclos/segundo (a conversao para segundos foi feita acima 10^9)
+		cpu_frequency_target = cpu_frequency_target / 1000; // Unidade: Khz (convertendo para de Hz para KHz)
 
 		// Buscando na tabela de frequencias do processador... qual o valor se aproxima da frequencia calculada.
 		index_freq_table = 0;
@@ -538,6 +573,9 @@ static void do_dbs_timer(struct work_struct *work)
 
 		if(cpu_frequency_table != policy->cur)
 		{
+			task_cur->cpu_frequency = cpu_frequency_table; // (KHz) Nova frequencia para a tarefa... visando diminuir o tempo de folga da tarefa...
+			task_cur->flagGovChangeFrequency = 1; // O Governor estah alterando a frequencia original da tarefa.
+
 			cpufreq_driver_target(policy, cpu_frequency_table, CPUFREQ_RELATION_H);
 			printk("[RAW MONITOR SET_FREQ] (%lu) - do_dbs_timer(%u) for cpu %u, freq %u kHz\n", cont_kraw, cpu_frequency_table, policy->cpu, policy->cur);
 		}
