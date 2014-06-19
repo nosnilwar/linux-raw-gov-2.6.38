@@ -559,7 +559,7 @@ static void do_dbs_timer(struct work_struct *work)
 			tempoRestanteProcessamento = 1;
 		}
 
-		printk("[RAW MONITOR SET_FREQ] (%lu) - cpu_frequency_target = ciclosClockRestantes(%lld) / tempoRestanteProcessamento(%lld) -> TIMER_FREQ(%ld)\n", cont_kraw, ciclosClockRestantes, tempoRestanteProcessamento, task_cur->timer_freq);
+		printk("[RAW MONITOR SET_FREQ] (%lu) - cpu_frequency_target = CCR(%lld) / TRP(%lld) -> TIMER_FREQ(%ld)\n", cont_kraw, ciclosClockRestantes, tempoRestanteProcessamento, task_cur->timer_freq);
 		cpu_frequency_target = ciclosClockRestantes / tempoRestanteProcessamento; // Unidade: Ciclos/segundo (a conversao para segundos foi feita acima 10^9)
 		cpu_frequency_target = cpu_frequency_target / 1000; // Unidade: Khz (convertendo para de Hz para KHz)
 
