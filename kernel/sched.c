@@ -2657,31 +2657,6 @@ void sched_fork(struct task_struct *p, int clone_flags)
 #endif
 
 	put_cpu();
-
-#ifdef CONFIG_RAWLINSON_DEBUG
-	/** [BEGIN] TODO: [RAWLINSON] log dos processos que estão sendo postos em executacao no processador... **/
-	// Segue abaixo o formato do arquivo de exportacao...
-	// |CPUID|nome da task|PID|trocas de processador|prioridade|
-//	pr_info("[RAWLINSON_FORK]: "
-//			"|%5d"
-//			"|%15s"
-//			"|%5d"
-//			"|%9Ld"
-//			"|%5d"
-//			"|%9Ld"
-//			"|%9Ld"
-//			"|%9Ld|\n",
-//			task_cpu(p),
-//			p->comm,
-//			p->pid,
-//			(long long)(p->nvcsw + p->nivcsw),
-//			p->prio,
-//			p->se.vruntime,
-//			p->se.sum_exec_runtime,
-//			p->se.prev_sum_exec_runtime
-//	);
-	/** [END] TODO: [RAWLINSON] **/
-#endif
 }
 
 /*
@@ -4011,51 +3986,12 @@ asmlinkage int __sched schedule(void)
 	struct rq *rq;
 	int cpu;
 
-	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
-//	unsigned int freq = cpu_khz ? : 1;
-//	struct task_struct *tsk;
-	/** [END] TODO: [RAWLINSON] **/
-
 need_resched:
 	preempt_disable();
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
 	rcu_note_context_switch(cpu);
 	prev = rq->curr;
-
-	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
-//	tsk = prev;
-//	if(task_cpu(tsk) == 0)
-//	{
-//		pr_info("[RAWLINSON_SCHEDULE - PREV]: "
-//				"|%5d"
-//				"|%15s"
-//				"|%5d"
-//				"|%5d"
-//				"|%u.%03u MHz"
-//				"|%ld"
-//				"|%ld"
-////				"|%9Ld"
-////				"|%5d"
-////				"|%9Ld"
-////				"|%9Ld"
-//				"|%9Ld|\n",
-//				task_cpu(tsk),
-//				tsk->comm,
-//				tsk->pid,
-//				tsk->state,
-//				(freq / 1000),
-//				(freq % 1000),
-//				(long) rq->clock,
-//				(long) rq->clock_task,
-//				(long long) (tsk->nvcsw + tsk->nivcsw)
-////				tsk->prio,
-////				tsk->se.vruntime,
-////				tsk->se.exec_start,
-////				tsk->se.sum_exec_runtime
-//		);
-//	}
-	/** [END] TODO: [RAWLINSON] **/
 
  	if (unlikely(prev->state & TASK_ATOMICSWITCH))
 		/* Pop one disable level -- one still remains. */
@@ -4103,72 +4039,6 @@ need_resched_nonpreemptible:
 	next = pick_next_task(rq);
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
-
-	/** [BEGIN] TODO: [RAWLINSON] LOG DOS PROCESSOS CORRENTES... **/
-//	tsk = prev;
-//	if(task_cpu(tsk) == 0)
-//	{
-//		pr_info("[RAWLINSON_SCHEDULE - PREV]: "
-//				"|%5d"
-//				"|%15s"
-//				"|%5d"
-//				"|%5d"
-//				"|%u.%03u MHz"
-//				"|%ld"
-//				"|%ld"
-////				"|%9Ld"
-////				"|%5d"
-////				"|%9Ld"
-////				"|%9Ld"
-//				"|%9Ld|\n",
-//				task_cpu(tsk),
-//				tsk->comm,
-//				tsk->pid,
-//				tsk->state,
-//				(freq / 1000),
-//				(freq % 1000),
-//				(long) rq->clock,
-//				(long) rq->clock_task,
-//				(long long) (tsk->nvcsw + tsk->nivcsw)
-////				tsk->prio,
-////				tsk->se.vruntime,
-////				tsk->se.exec_start,
-////				tsk->se.sum_exec_runtime
-//		);
-//	}
-//
-//	tsk = next;
-//	if(task_cpu(tsk) == 0)
-//	{
-//		pr_info("[RAWLINSON_SCHEDULE - NEXT]: "
-//				"|%5d"
-//				"|%15s"
-//				"|%5d"
-//				"|%5d"
-//				"|%u.%03u MHz"
-//				"|%ld"
-//				"|%ld"
-////				"|%9Ld"
-////				"|%5d"
-////				"|%9Ld"
-////				"|%9Ld"
-//				"|%9Ld|\n",
-//				task_cpu(tsk),
-//				tsk->comm,
-//				tsk->pid,
-//				tsk->state,
-//				(freq / 1000),
-//				(freq % 1000),
-//				(long) rq->clock,
-//				(long) rq->clock_task,
-//				(long long) (tsk->nvcsw + tsk->nivcsw)
-////				tsk->prio,
-////				tsk->se.vruntime,
-////				tsk->se.exec_start,
-////				tsk->se.sum_exec_runtime
-//		);
-//	}
-	/** [END] TODO: [RAWLINSON] **/
 
 	if (likely(prev != next)) {
 		sched_info_switch(prev, next);

@@ -1245,9 +1245,6 @@ struct task_struct {
 	//TODO:RAWLINSON - Flag que indica ao RAW GOVERNOR que a tarefa acabou de voltar de uma preempcao.
 	unsigned int flagReturnPreemption;  // (1 - se a tarefa voltou de preempcao dentro do RTAI e 0 - caso contrário)
 
-	//TODO:RAWLINSON - Flag indica que a frequencia da tarefa foi alterado pelo sistema operacional (Raw Governor).
-	unsigned int flagGovChangeFrequency;  // (1 - se a frequencia da tarefa foi alterada pelo Governor e 0 - caso contrário)
-
 	/* TODO:RAWLINSON - VARIAVEIS DE CONTROLE E GERENCIAMENTO DO RAW GOVERNOR */
 	unsigned long tsk_wcec; // WCEC - Worst Case Execution Cycles - of the task
 	unsigned long rwcec; // RWCEC - Remaining Worst Case Execution Cycle
@@ -1258,13 +1255,6 @@ struct task_struct {
 	unsigned int cpu_voltage;
 	unsigned int last_cpu_frequency;
 	unsigned int last_cpu_voltage;
-
-	unsigned long timer_freq; //TODO: VERIFICAR DEPOIS ESSA DEFINICAO POIS PODE MUDAR SE FOR rt_set_periodic_mode OU rt_set_oneshot_mode. DEFAULT: rt_set_periodic_mode
-	TYPE_RT_TIME period;
-	TYPE_RT_TIME resume_time;
-	TYPE_RT_TIME periodic_resume_time;
-	TYPE_RT_TIME yield_time;
-	int rr_quantum, rr_remaining;
 	/* TODO:RAWLINSON - FIM DAS DEFINICOES...*/
 
 	int lock_depth;		/* BKL lock depth */
