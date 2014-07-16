@@ -2937,6 +2937,14 @@ context_switch(struct rq *rq, struct task_struct *prev,
 {
 	struct mm_struct *mm, *oldmm;
 
+	if(task_cpu(prev) == CPUID_RTAI && task_cpu(next) == CPUID_RTAI && prev->pid != next->pid)
+	{
+		//pr_info("[RAWLINSON_SCHEDULE - context_switch]: PID(%d -> %d) STATE( %ld -> %ld )\n", prev->pid, next->pid, prev->state, next->state);
+		if(prev->state == TASK_RUNNING && next->state == TASK_RUNNING) {
+			prev->flagReturnPreemption = 1;
+		}
+	}
+
 	mm = next->mm;
 	oldmm = prev->active_mm;
 
@@ -2998,6 +3006,7 @@ if (unlikely(rq)) {
 	 */
 	finish_task_switch(this_rq(), prev);
 }
+
 	return 0;
 }
 

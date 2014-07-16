@@ -230,26 +230,17 @@ extern char ___assert_task_state[1 - 2*!!(
 				 (task->flags & PF_FREEZING) == 0)
 
 //TODO:RAWLINSON...
-/** ORIGINAL...
-#define __set_task_state(tsk, state_value)		\
-	do { (tsk)->state = (state_value); if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - __set_task_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", tsk->comm, tsk->pid, tsk->state, state_value); } while (0)
-#define set_task_state(tsk, state_value)		\
-	do { set_mb((tsk)->state, (state_value)); if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_task_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", tsk->comm, tsk->pid, tsk->state, state_value); } while (0)
-*/
+/** ORIGINAL...*/
+/* if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - __set_task_state]: PROC(%s) PID(%d) STATE( %ld -> %d )\n", tsk->comm, tsk->pid, tsk->state, state_value); \ */
 #define __set_task_state(tsk, state_value)		\
 	do { \
 		(tsk)->state = (state_value); \
-		if(state_value == TASK_INTERRUPTIBLE) { \
-			(tsk)->flagReturnPreemption = 1; \
-		} \
 	} while (0)
 
+/* if(task_cpu(tsk) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_task_state]: PROC(%s) PID(%d) STATE( %ld -> %d )\n", tsk->comm, tsk->pid, tsk->state, state_value); \ */
 #define set_task_state(tsk, state_value)		\
 	do { \
 		set_mb((tsk)->state, (state_value)); \
-		if(state_value == TASK_INTERRUPTIBLE) { \
-			(tsk)->flagReturnPreemption = 1; \
-		} \
 	} while (0)
 
 /*
@@ -264,28 +255,17 @@ extern char ___assert_task_state[1 - 2*!!(
  * If the caller does not need such serialisation then use __set_current_state()
  */
 //TODO:RAWLINSON...
-/** ORIGINAL...
-#define __set_current_state(state_value)			\
-	do { current->state = (state_value); if(task_cpu(current) == 0)  pr_info("[RAWLINSON_SCHEDULE - __set_current_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", current->comm, current->pid, current->state, state_value); } while (0)
-
-#define set_current_state(state_value)		\
-	do { set_mb(current->state, (state_value)); if(task_cpu(current) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_current_state]: PROC(%s) PID(%d) STATE(%d - %d)\n", current->comm, current->pid, current->state, state_value); } while (0)
-*/
-
+/** ORIGINAL... */
+/* if(task_cpu(current) == 0)  pr_info("[RAWLINSON_SCHEDULE - __set_current_state]: PROC(%s) PID(%d) STATE( %ld -> %d )\n", current->comm, current->pid, current->state, state_value); \ */
 #define __set_current_state(state_value)			\
 	do { \
 		current->state = (state_value); \
-		if(state_value == TASK_INTERRUPTIBLE) { \
-			current->flagReturnPreemption = 1; \
-		} \
 	} while (0)
 
+/* if(task_cpu(current) == 0)  pr_info("[RAWLINSON_SCHEDULE - set_current_state]: PROC(%s) PID(%d) STATE( %ld -> %d )\n", current->comm, current->pid, current->state, state_value); \ */
 #define set_current_state(state_value)		\
 	do { \
 		set_mb(current->state, (state_value)); \
-		if(state_value == TASK_INTERRUPTIBLE) { \
-			current->flagReturnPreemption = 1; \
-		} \
 	} while (0)
 
 /* Task command name length */
