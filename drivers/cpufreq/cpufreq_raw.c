@@ -28,6 +28,8 @@ static DEFINE_MUTEX(raw_mutex);
 
 static int cpus_using_raw_governor;
 
+struct cpufreq_frequency_table *freq_table;
+
 #define dprintk(msg...) \
 	cpufreq_debug_printk(CPUFREQ_DEBUG_GOVERNOR, "raw", msg)
 
@@ -49,11 +51,42 @@ static struct notifier_block raw_cpufreq_notifier_block = {
 	.notifier_call  = raw_cpufreq_notifier
 };
 
+unsigned int get_frequency_table_target(struct cpufreq_policy *policy, unsigned int target_freq)
+{
+	unsigned int new_freq;
+	unsigned int i;
+
+	if (!cpu_online(policy->cpu))
+		return -EINVAL;
+
+	//OBS.: as frequencias comecam do MAIOR para o MENOR.
+	new_freq = freq_table[0].frequency;
+	for (i = 0; (freq_table[i].frequency != CPUFREQ_TABLE_END); i++) {
+		unsigned int freq = freq_table[i].frequency;
+
+		if (freq == CPUFREQ_ENTRY_INVALID)
+			continue;
+
+		if ((freq < policy->min) || (freq > policy->max))
+			continue;
+
+		if (freq < target_freq) {
+			break;
+		}
+		new_freq = freq;
+	}
+
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - get_frequency_table_target(%u) kHz for cpu %u => NOVA FREQ(%u kHz)\n", target_freq, policy->cpu, new_freq);
+
+	return new_freq;
+}
+
 /**
  * Sets the CPU frequency to freq.
  */
 static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq)
 {
+	unsigned int valid_freq = 0;
 	int ret = -EINVAL;
 
 	mutex_lock(&raw_mutex);
@@ -64,7 +97,6 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 	if(task && task->pid > 0)
 	{
 		task->flagReturnPreemption = 0;
-		task->flagGovChangeFrequency = 0;
 	}
 
 	/*
@@ -77,12 +109,13 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 	 *      __cpufreq_governor ->
 	 *         cpufreq_governor_raw (lock raw_mutex)
 	 */
-	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
+	valid_freq = get_frequency_table_target(policy, freq);
+	ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
 
 	//Atualizando a frequencia da tarefa para uma frequencia valida.
 	task->cpu_frequency = policy->cur; // (KHz)
 
-	printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u - %s -> flagReturnPreemption(%d) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->flagReturnPreemption, task->pid);
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u KHz - GOV(%s) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->pid);
 
 err:
 	mutex_unlock(&raw_mutex);
@@ -94,13 +127,15 @@ err:
  */
 static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 {
+	unsigned int valid_freq = 0;
 	int ret = -EINVAL;
 
 	mutex_lock(&raw_mutex);
 	if (!per_cpu(cpu_is_managed, policy->cpu))
 		goto err;
 
-	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_H);
+	valid_freq = get_frequency_table_target(policy, freq);
+	ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
 
 	printk("DEBUG:RAWLINSON - cpufreq_raw_set(%u) for cpu %u, freq %u kHz\n", freq, policy->cpu, policy->cur);
 
@@ -113,6 +148,8 @@ static int cpufreq_governor_raw(struct cpufreq_policy *policy, unsigned int even
 {
 	unsigned int cpu = policy->cpu;
 	int rc = 0;
+
+	freq_table = cpufreq_frequency_get_table(cpu);
 
 	switch (event) {
 		case CPUFREQ_GOV_START:
