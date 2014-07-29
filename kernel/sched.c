@@ -2912,11 +2912,16 @@ context_switch(struct rq *rq, struct task_struct *prev,
 {
 	struct mm_struct *mm, *oldmm;
 
+	//TODO:RAWLINSON...
 	if(task_cpu(prev) == CPUID_RTAI && task_cpu(next) == CPUID_RTAI && prev->pid != next->pid)
 	{
-		//pr_info("[RAWLINSON_SCHEDULE - context_switch]: PID(%d -> %d) STATE( %ld -> %ld )\n", prev->pid, next->pid, prev->state, next->state);
-		if(prev->pid > 0 && prev->state == TASK_RUNNING && next->state == TASK_RUNNING) {
-			prev->flagReturnPreemption = 1;
+//		pr_info("[RAWLINSON_SCHEDULE - context_switch]: PID(%d -> %d) STATE( %ld -> %ld )\n", prev->pid, next->pid, prev->state, next->state);
+		if(prev->pid > 0 && next->pid > 0 && prev->state == TASK_RUNNING && next->state == TASK_RUNNING) {
+			prev->flagPreemption = 1;
+		}
+		if(next->pid > 0 && next->flagPreemption && next->state == TASK_RUNNING) {
+			next->flagPreemption = 0;
+			next->flagReturnPreemption = 1;
 		}
 	}
 

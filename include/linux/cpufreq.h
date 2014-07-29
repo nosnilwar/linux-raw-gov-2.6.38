@@ -174,6 +174,7 @@ struct cpufreq_governor {
 	ssize_t	(*show_setspeed)	(struct cpufreq_policy *policy, char *buf);
 	int 	(*store_setspeed)	(struct cpufreq_policy *policy, unsigned int freq);
 	int		(*set_frequency)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq);
+	int		(*wake_up_kworker)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned long long deadline_ns);
 	unsigned int max_transition_latency; /* HW must be able to switch to
 			next freq faster than this value in nano secs or we
 			will fallback to performance governor */
@@ -403,6 +404,7 @@ void   cpufreq_cpu_put (struct cpufreq_policy *data);
 
 //TODO:RAWLINSON - ACRESCENTADOS AS FUNCOES ABAIXO... PARA SEREM UTILIZADAS NO SCHED.C NO RTAI. :P
 ssize_t store_scaling_governor(struct cpufreq_policy *policy, const char *buf, size_t count);
+ssize_t store_scaling_setspeed(struct cpufreq_policy *policy, const char *buf, size_t count);
 
 /* the following are really really optional */
 extern struct freq_attr cpufreq_freq_attr_scaling_available_freqs;

@@ -14,15 +14,12 @@
 #include <linux/tick.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
-
-#define POLL_TIME 100000 /* in µs */
+#include <linux/kthread.h>
 
 struct raw_gov_info_struct {
-	unsigned long busy_spus;	/* fixed-point */
 	struct cpufreq_policy *policy;
-	struct work_struct work;
-	unsigned int poll_int;		/* µs */
-	int flagDefinicaoPrioWorkqueue; /* verificar se foi atribuida a Prioridade RT para a Workqueue. 1 - Sim / 0 - Nao */
+	struct kthread_worker kraw_worker;
+	struct kthread_work work;
 
 	/*
 	 * percpu mutex that serializes governor limit change with
@@ -30,16 +27,14 @@ struct raw_gov_info_struct {
 	 * when user is changing the governor or limits.
 	 */
 	struct mutex timer_mutex;
+
+	struct task_struct *tarefa_sinalizada;
+	unsigned long long deadline_tarefa_sinalizada;
 };
 
 static DEFINE_PER_CPU(struct raw_gov_info_struct, raw_gov_info);
 
 static DEFINE_MUTEX(raw_mutex);
-
-static struct workqueue_struct	*kraw_wq;
-
-struct task_struct *tarefa_sinalizada;
-unsigned long long deadline_tarefa_sinalizada;
 
 struct cpufreq_frequency_table *freq_table;
 
@@ -73,27 +68,6 @@ unsigned int get_frequency_table_target(struct cpufreq_policy *policy, unsigned 
 	printk("DEBUG:RAWLINSON - RAW GOVERNOR - get_frequency_table_target(%u) kHz for cpu %u => NOVA FREQ(%u kHz)\n", target_freq, policy->cpu, new_freq);
 
 	return new_freq;
-}
-
-/**
- * SINALIZA PARA O RAW MONITOR QUE O TAREFA PREEMPTADA VOLTOU A EXECUCAO.
- */
-static int wake_up_kworker(struct cpufreq_policy *policy, struct task_struct *task, unsigned long long deadline_ns)
-{
-	//unsigned int valid_freq = 0;
-	int ret = -EINVAL;
-	struct raw_gov_info_struct *info;
-
-	info = &per_cpu(raw_gov_info, policy->cpu);
-
-	mutex_lock(&raw_mutex);
-
-	tarefa_sinalizada = task;
-	printk("DEBUG:RAWLINSON - RAW GOVERNOR - wake_up_kworker PID (%d) -> Deadline(%llu)\n", tarefa_sinalizada->pid, deadline_ns);
-	queue_work_on(info->policy->cpu, kraw_wq, &info->work);
-
-	mutex_unlock(&raw_mutex);
-	return ret;
 }
 
 /**
@@ -155,64 +129,92 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 	return ret;
 }
 
+/**
+ * SINALIZA PARA O RAW MONITOR QUE O TAREFA PREEMPTADA VOLTOU A EXECUCAO.
+ */
+static int wake_up_kworker(struct cpufreq_policy *policy, struct task_struct *task, unsigned long long deadline_ns)
+{
+	//unsigned int valid_freq = 0;
+	int ret = -EINVAL;
+	struct raw_gov_info_struct *info;
+
+	info = &per_cpu(raw_gov_info, policy->cpu);
+
+	mutex_lock(&raw_mutex);
+
+	info->tarefa_sinalizada = task;
+	info->deadline_tarefa_sinalizada = deadline_ns;
+
+	queue_kthread_work(&info->kraw_worker, &info->work);
+
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - wake_up_kworker PID (%d) -> Deadline(%llu)\n", info->tarefa_sinalizada->pid, info->deadline_tarefa_sinalizada);
+
+	mutex_unlock(&raw_mutex);
+	return ret;
+}
+
 static int calc_freq(struct raw_gov_info_struct *info)
 {
 	return 800000;
 }
 
-static void raw_gov_work(struct work_struct *work)
+void raw_gov_work(struct kthread_work *work)
 {
-	static struct sched_param param = { .sched_priority = MAX_RT_PRIO-1 };
-	struct task_struct *task_cur;
-
 	struct raw_gov_info_struct *info;
-//	int delay;
 	unsigned long target_freq;
 
 	info = container_of(work, struct raw_gov_info_struct, work);
 
-	//*********** BEGIN: Definindo a prioridade do RAW monitor...
-	if(!info->flagDefinicaoPrioWorkqueue)
-	{
-		task_cur = get_current_task(info->policy->cpu);
-		sched_setscheduler(task_cur, SCHED_FIFO, &param);
-		printk("DEBUG:RAWLINSON - raw_gov_init_work - Passou pela definição de prioridades da Kraw. PID(%d) CPUID(%d)\n", task_cur->pid, info->policy->cpu);
-
-		info->flagDefinicaoPrioWorkqueue = 1;
-	}
-	//*********** END: Definindo a prioridade do RAW monitor...
-
 	mutex_lock(&info->timer_mutex);
 
-	if(tarefa_sinalizada && tarefa_sinalizada->pid > 0)
+	if(info->tarefa_sinalizada && info->tarefa_sinalizada->pid > 0)
 	{
-		tarefa_sinalizada->flagReturnPreemption = 0;
+		info->tarefa_sinalizada->flagReturnPreemption = 0;
 	}
 
 	target_freq = calc_freq(info);
 //	if(target_freq != info->policy->cur)
 //		__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
 	printk("DEBUG:RAWLINSON - raw_gov_work(%lu) for cpu %u, freq %u kHz\n", target_freq, info->policy->cpu, info->policy->cur);
-//	delay = usecs_to_jiffies(info->poll_int);
-//	queue_delayed_work_on(info->policy->cpu, kraw_wq, &info->work, delay);
 
 	mutex_unlock(&info->timer_mutex);
+
+	printk("DEBUG:RAWLINSON - #########################@@@@@@@@@@@@@@@@@@@@@@@ PASSOUUUUUU - raw_gov_work\n");
 }
 
 static void raw_gov_init_work(struct raw_gov_info_struct *info)
 {
-//	int delay = usecs_to_jiffies(info->poll_int);
-//	INIT_DELAYED_WORK_DEFERRABLE(&info->work, raw_gov_work);
-//	queue_delayed_work_on(info->policy->cpu, kraw_wq, &info->work, delay);
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 1 };
+	struct cpumask cpu_rtai = cpumask_of_cpu(CPUID_RTAI);
 
-	INIT_WORK(&info->work, raw_gov_work);
-	queue_work_on(info->policy->cpu, kraw_wq, &info->work);
+	info->tarefa_sinalizada = NULL;
+	info->deadline_tarefa_sinalizada = 0;
+
+	init_kthread_worker(&info->kraw_worker);
+	info->kraw_worker.task = kthread_create(kthread_worker_fn, &info->kraw_worker, "raw_monitor/%d", info->policy->cpu);
+	if (IS_ERR(info->kraw_worker.task)) {
+		printk(KERN_ERR "Creation of raw_monitor/%d failed\n", info->policy->cpu);
+	}
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - raw_gov_init_work -> PID (%d)\n", info->kraw_worker.task->pid);
+
+	get_task_struct(info->kraw_worker.task);
+	set_cpus_allowed_ptr(info->kraw_worker.task, &cpu_rtai);
+	kthread_bind(info->kraw_worker.task, info->policy->cpu);
+
+	/* must use the FIFO scheduler as it is realtime sensitive */
+	sched_setscheduler(info->kraw_worker.task, SCHED_FIFO, &param);
+
+	init_kthread_work(&info->work, raw_gov_work);
+
+	queue_kthread_work(&info->kraw_worker, &info->work);
 }
 
 static void raw_gov_cancel_work(struct raw_gov_info_struct *info)
 {
-//	cancel_delayed_work_sync(&info->work);
-	cancel_work_sync(&info->work);
+	/* Kill irq worker */
+	flush_kthread_worker(&info->kraw_worker);
+	kthread_stop(info->kraw_worker.task);
+	printk("DEBUG:RAWLINSON - raw_gov_cancel_work - Removendo o raw_monitor\n");
 }
 
 static int cpufreq_governor_raw(struct cpufreq_policy *policy, unsigned int event)
@@ -237,9 +239,6 @@ static int cpufreq_governor_raw(struct cpufreq_policy *policy, unsigned int even
 			}
 
 			BUG_ON(!policy->cur);
-
-			info->poll_int = POLL_TIME;
-			info->flagDefinicaoPrioWorkqueue = 0;
 
 			/* setup timer */
 			mutex_init(&info->timer_mutex);
@@ -284,28 +283,12 @@ struct cpufreq_governor cpufreq_gov_raw = {
 
 static int __init cpufreq_gov_raw_init(void)
 {
-	int err;
-
-	tarefa_sinalizada = NULL;
-	deadline_tarefa_sinalizada = 0;
-
-	kraw_wq = create_workqueue("kraw");
-	if (!kraw_wq) {
-		printk(KERN_ERR "Creation of kraw failed\n");
-		return -EFAULT;
-	}
-
-	err = cpufreq_register_governor(&cpufreq_gov_raw);
-	if (err)
-		destroy_workqueue(kraw_wq);
-
-	return err;
+	return cpufreq_register_governor(&cpufreq_gov_raw);
 }
 
 static void __exit cpufreq_gov_raw_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_raw);
-	destroy_workqueue(kraw_wq);
 }
 
 MODULE_AUTHOR("Rawlinson <rawlinson.goncalves@gmail.com>");

@@ -1080,7 +1080,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	init_sigpending(&p->pending);
 
 	//TODO:RAWLINSON - Inicializando variaveis de controle do RAW GOVERNOR...
-	p->flagGovChangeFrequency = 0;
+	p->flagPreemption = 0;
 	p->flagReturnPreemption = 0;
 	p->tsk_wcec = 0;
 	p->rwcec = 0;

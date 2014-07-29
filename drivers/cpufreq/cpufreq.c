@@ -624,8 +624,9 @@ static ssize_t show_affected_cpus(struct cpufreq_policy *policy, char *buf)
 	return show_cpus(policy->cpus, buf);
 }
 
-static ssize_t store_scaling_setspeed(struct cpufreq_policy *policy,
-					const char *buf, size_t count)
+//TODO:RAWLINSON...
+ssize_t store_scaling_setspeed(struct cpufreq_policy *policy, const char *buf, size_t count)
+//static ssize_t store_scaling_setspeed(struct cpufreq_policy *policy, const char *buf, size_t count) // ORIGINAL...
 {
 	unsigned int freq = 0;
 	unsigned int ret;
@@ -641,6 +642,8 @@ static ssize_t store_scaling_setspeed(struct cpufreq_policy *policy,
 
 	return count;
 }
+//TODO:RAWLINSON...
+EXPORT_SYMBOL_GPL(store_scaling_setspeed);
 
 static ssize_t show_scaling_setspeed(struct cpufreq_policy *policy, char *buf)
 {
