@@ -1245,6 +1245,7 @@ struct task_struct {
 	//TODO:RAWLINSON - Flag que indica ao RAW GOVERNOR que a tarefa acabou de voltar de uma preempcao.
 	unsigned int flagPreemption;  // (1 - se a tarefa FOI preemptada dentro do RTAI e 0 - caso contrário)
 	unsigned int flagReturnPreemption;  // (1 - se a tarefa voltou de preempcao dentro do RTAI e 0 - caso contrário)
+	unsigned int flagCheckedRawMonitor;  // (1 - se a tarefa foi verificada pelo RAW MONITOR e 0 - caso contrário)
 
 	/* TODO:RAWLINSON - VARIAVEIS DE CONTROLE E GERENCIAMENTO DO RAW GOVERNOR */
 	unsigned long tsk_wcec; // WCEC - Worst Case Execution Cycles - of the task

@@ -10,7 +10,6 @@
 #include <linux/jiffies.h>
 #include <linux/kernel_stat.h>
 #include <linux/mutex.h>
-#include <linux/hrtimer.h>
 #include <linux/tick.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
@@ -21,15 +20,15 @@ struct raw_gov_info_struct {
 	struct kthread_worker kraw_worker;
 	struct kthread_work work;
 
-	/*
-	 * percpu mutex that serializes governor limit change with
-	 * do_dbs_timer invocation. We do not want do_dbs_timer to run
-	 * when user is changing the governor or limits.
-	 */
 	struct mutex timer_mutex;
 
 	struct task_struct *tarefa_sinalizada;
 	unsigned long long deadline_tarefa_sinalizada;
+	unsigned long long tick_timer_rtai_ns;
+
+	/* Os atributos abaixo indicam o intervalo de tempo que o RAW MONITOR levou para ser ativado. */
+	unsigned long long start_timer_delay_monitor;
+	unsigned long long end_timer_delay_monitor;
 };
 
 static DEFINE_PER_CPU(struct raw_gov_info_struct, raw_gov_info);
@@ -83,28 +82,29 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 	// Se alguma frequencia foi definida... então o monitor não precisa mais verificar a tarefa que foi sinalizada... \o/
 	if(task && task->pid > 0)
 	{
+		task->flagPreemption = 0;
 		task->flagReturnPreemption = 0;
+		task->flagCheckedRawMonitor = 0;
+
+		/*
+		 * We're safe from concurrent calls to ->target() here
+		 * as we hold the raw_mutex lock. If we were calling
+		 * cpufreq_driver_target, a deadlock situation might occur:
+		 * A: cpufreq_set (lock raw_mutex) ->
+		 *      cpufreq_driver_target(lock policy->lock)
+		 * B: cpufreq_set_policy(lock policy->lock) ->
+		 *      __cpufreq_governor ->
+		 *         cpufreq_governor_raw (lock raw_mutex)
+		 */
+		valid_freq = get_frequency_table_target(policy, freq);
+		if(valid_freq != policy->cur)
+			ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
+
+		//Atualizando a frequencia da tarefa para uma frequencia valida.
+		task->cpu_frequency = policy->cur; // (KHz)
+
+		printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u KHz - GOV(%s) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->pid);
 	}
-
-	/*
-	 * We're safe from concurrent calls to ->target() here
-	 * as we hold the raw_mutex lock. If we were calling
-	 * cpufreq_driver_target, a deadlock situation might occur:
-	 * A: cpufreq_set (lock raw_mutex) ->
-	 *      cpufreq_driver_target(lock policy->lock)
-	 * B: cpufreq_set_policy(lock policy->lock) ->
-	 *      __cpufreq_governor ->
-	 *         cpufreq_governor_raw (lock raw_mutex)
-	 */
-	valid_freq = get_frequency_table_target(policy, freq);
-	if(valid_freq != policy->cur)
-		ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
-
-	//Atualizando a frequencia da tarefa para uma frequencia valida.
-	task->cpu_frequency = policy->cur; // (KHz)
-
-	printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u KHz - GOV(%s) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->pid);
-
 	mutex_unlock(&raw_mutex);
 	return ret;
 }
@@ -132,54 +132,98 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 /**
  * SINALIZA PARA O RAW MONITOR QUE O TAREFA PREEMPTADA VOLTOU A EXECUCAO.
  */
-static int wake_up_kworker(struct cpufreq_policy *policy, struct task_struct *task, unsigned long long deadline_ns)
+static int wake_up_kworker(struct cpufreq_policy *policy, struct task_struct *task, unsigned long long tick_timer_rtai_ns, unsigned long long deadline_ns)
 {
-	//unsigned int valid_freq = 0;
 	int ret = -EINVAL;
+	struct timespec timespecKernel;
 	struct raw_gov_info_struct *info;
 
 	info = &per_cpu(raw_gov_info, policy->cpu);
 
-	mutex_lock(&raw_mutex);
+	mutex_lock(&info->timer_mutex);
+	if(task && task->pid > 0)
+	{
+		if(info->tarefa_sinalizada && info->tarefa_sinalizada->pid > 0 && info->tarefa_sinalizada->pid == task->pid && info->deadline_tarefa_sinalizada == deadline_ns)
+		{
+			info->tick_timer_rtai_ns = tick_timer_rtai_ns;
+		}
+		else
+		{
+			info->tarefa_sinalizada = task;
+			info->deadline_tarefa_sinalizada = deadline_ns;
+			info->tick_timer_rtai_ns = tick_timer_rtai_ns;
 
-	info->tarefa_sinalizada = task;
-	info->deadline_tarefa_sinalizada = deadline_ns;
+			timespecKernel = current_kernel_time();
+			info->start_timer_delay_monitor = timespecKernel.tv_nsec; //** PEGANDO O TIMER ATUAL DO KERNEL (ns).
 
-	queue_kthread_work(&info->kraw_worker, &info->work);
+			flush_kthread_work(&info->work);
+			queue_kthread_work(&info->kraw_worker, &info->work);
 
-	printk("DEBUG:RAWLINSON - RAW GOVERNOR - wake_up_kworker PID (%d) -> Deadline(%llu)\n", info->tarefa_sinalizada->pid, info->deadline_tarefa_sinalizada);
-
-	mutex_unlock(&raw_mutex);
+			printk("DEBUG:RAWLINSON - RAW GOVERNOR - wake_up_kworker PID (%d) -> Deadline(%llu)\n", info->tarefa_sinalizada->pid, info->deadline_tarefa_sinalizada);
+		}
+	}
+	mutex_unlock(&info->timer_mutex);
 	return ret;
 }
 
 static int calc_freq(struct raw_gov_info_struct *info)
 {
-	return 800000;
+	struct timespec timespecKernel;
+	double cpu_frequency_target = 0.0;
+	double tempoRestanteProcessamento = 0.0;
+	unsigned long long tempoRestanteProcessamento_ns = 0;
+	unsigned long long tick_timer_atual;
+	unsigned long long intervalo_tempo_ativacao_monitor;
+	unsigned int valid_freq = 0;
+
+	timespecKernel = current_kernel_time();
+	info->end_timer_delay_monitor = timespecKernel.tv_nsec; //** PEGANDO O TIMER ATUAL DO KERNEL (ns).
+	intervalo_tempo_ativacao_monitor = info->end_timer_delay_monitor - info->start_timer_delay_monitor;
+	tick_timer_atual = info->tick_timer_rtai_ns + intervalo_tempo_ativacao_monitor;
+	tempoRestanteProcessamento_ns = info->deadline_tarefa_sinalizada - tick_timer_atual; // ns
+
+	tempoRestanteProcessamento = tempoRestanteProcessamento_ns / 1000000000.0; // UNIDADE AQUI EH: nanosegundo(s) para segundo(s) (10^9).
+	if(tempoRestanteProcessamento <= 0)
+		tempoRestanteProcessamento = 1.0;
+
+	cpu_frequency_target = (info->tarefa_sinalizada->rwcec / tempoRestanteProcessamento) ; // Unidade: Ciclos/segundo (a conversao para segundos foi feita acima 10^9)
+	cpu_frequency_target = cpu_frequency_target / 1000.0; // Unidade: Khz (convertendo para de Hz para KHz)
+
+	printk("DEBUG:RAWLINSON - calc_freq - RWCEC(%ld) / TRP(%lld ns) ===> TIMER(%llu) ==> DelayMonitor(%llu) \n", info->tarefa_sinalizada->rwcec, tempoRestanteProcessamento_ns, tick_timer_atual, intervalo_tempo_ativacao_monitor);
+
+	valid_freq = get_frequency_table_target(info->policy, cpu_frequency_target);
+	return valid_freq;
 }
 
 void raw_gov_work(struct kthread_work *work)
 {
 	struct raw_gov_info_struct *info;
-	unsigned long target_freq;
+	unsigned long target_freq = 0;
 
 	info = container_of(work, struct raw_gov_info_struct, work);
 
 	mutex_lock(&info->timer_mutex);
-
+	mutex_lock(&raw_mutex);
 	if(info->tarefa_sinalizada && info->tarefa_sinalizada->pid > 0)
 	{
+		if(info->tarefa_sinalizada->rwcec > 0)
+		{
+			target_freq = calc_freq(info);
+			if(target_freq >= info->tarefa_sinalizada->cpu_frequency_min && target_freq != info->policy->cur)
+			{
+				__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
+				info->tarefa_sinalizada->cpu_frequency = target_freq; // (KHz) Nova frequencia para a tarefa... visando diminuir o tempo de folga da tarefa.
+			}
+		}
+
 		info->tarefa_sinalizada->flagReturnPreemption = 0;
+		info->tarefa_sinalizada->flagCheckedRawMonitor = 1;
+
+		printk("-------------------------------[ RAW MONITOR ]------------------------------\n");
+		printk("DEBUG:RAWLINSON - raw_gov_work(%lu) for cpu %u, freq %u kHz - PID(%d)\n", target_freq, info->policy->cpu, info->policy->cur, info->tarefa_sinalizada->pid);
 	}
-
-	target_freq = calc_freq(info);
-//	if(target_freq != info->policy->cur)
-//		__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
-	printk("DEBUG:RAWLINSON - raw_gov_work(%lu) for cpu %u, freq %u kHz\n", target_freq, info->policy->cpu, info->policy->cur);
-
+	mutex_unlock(&raw_mutex);
 	mutex_unlock(&info->timer_mutex);
-
-	printk("DEBUG:RAWLINSON - #########################@@@@@@@@@@@@@@@@@@@@@@@ PASSOUUUUUU - raw_gov_work\n");
 }
 
 static void raw_gov_init_work(struct raw_gov_info_struct *info)
@@ -197,7 +241,7 @@ static void raw_gov_init_work(struct raw_gov_info_struct *info)
 	}
 	printk("DEBUG:RAWLINSON - RAW GOVERNOR - raw_gov_init_work -> PID (%d)\n", info->kraw_worker.task->pid);
 
-	get_task_struct(info->kraw_worker.task);
+//	get_task_struct(info->kraw_worker.task);
 	set_cpus_allowed_ptr(info->kraw_worker.task, &cpu_rtai);
 	kthread_bind(info->kraw_worker.task, info->policy->cpu);
 
@@ -206,6 +250,7 @@ static void raw_gov_init_work(struct raw_gov_info_struct *info)
 
 	init_kthread_work(&info->work, raw_gov_work);
 
+	flush_kthread_work(&info->work);
 	queue_kthread_work(&info->kraw_worker, &info->work);
 }
 

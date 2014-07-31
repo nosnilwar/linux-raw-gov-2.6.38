@@ -2920,8 +2920,17 @@ context_switch(struct rq *rq, struct task_struct *prev,
 			prev->flagPreemption = 1;
 		}
 		if(next->pid > 0 && next->flagPreemption && next->state == TASK_RUNNING) {
-			next->flagPreemption = 0;
-			next->flagReturnPreemption = 1;
+			if(next->flagCheckedRawMonitor)
+			{
+				next->flagPreemption = 0;
+				next->flagCheckedRawMonitor = 0;
+				next->flagReturnPreemption = 0;
+			}
+			else
+			{
+				next->flagPreemption = 0;
+				next->flagReturnPreemption = 1;
+			}
 		}
 	}
 
