@@ -105,6 +105,7 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 
 		printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u KHz - GOV(%s) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->pid);
 	}
+
 	mutex_unlock(&raw_mutex);
 	return ret;
 }
@@ -203,7 +204,6 @@ void raw_gov_work(struct kthread_work *work)
 	info = container_of(work, struct raw_gov_info_struct, work);
 
 	mutex_lock(&info->timer_mutex);
-	mutex_lock(&raw_mutex);
 	if(info->tarefa_sinalizada && info->tarefa_sinalizada->pid > 0)
 	{
 		if(info->tarefa_sinalizada->rwcec > 0)
@@ -222,7 +222,6 @@ void raw_gov_work(struct kthread_work *work)
 		printk("-------------------------------[ RAW MONITOR ]------------------------------\n");
 		printk("DEBUG:RAWLINSON - raw_gov_work(%lu) for cpu %u, freq %u kHz - PID(%d)\n", target_freq, info->policy->cpu, info->policy->cur, info->tarefa_sinalizada->pid);
 	}
-	mutex_unlock(&raw_mutex);
 	mutex_unlock(&info->timer_mutex);
 }
 
