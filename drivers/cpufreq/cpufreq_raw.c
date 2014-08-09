@@ -214,13 +214,13 @@ void raw_gov_work(struct kthread_work *work)
 				__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
 				info->tarefa_sinalizada->cpu_frequency = target_freq; // (KHz) Nova frequencia para a tarefa... visando diminuir o tempo de folga da tarefa.
 			}
+
+			printk("-------------------------------[ RAW MONITOR ]------------------------------\n");
+			printk("DEBUG:RAWLINSON - raw_gov_work(%lu) for cpu %u, freq %u kHz - PID(%d)\n", target_freq, info->policy->cpu, info->policy->cur, info->tarefa_sinalizada->pid);
 		}
 
 		info->tarefa_sinalizada->flagReturnPreemption = 0;
 		info->tarefa_sinalizada->flagCheckedRawMonitor = 1;
-
-		printk("-------------------------------[ RAW MONITOR ]------------------------------\n");
-		printk("DEBUG:RAWLINSON - raw_gov_work(%lu) for cpu %u, freq %u kHz - PID(%d)\n", target_freq, info->policy->cpu, info->policy->cur, info->tarefa_sinalizada->pid);
 	}
 	mutex_unlock(&info->timer_mutex);
 }
