@@ -39,6 +39,12 @@ struct cpufreq_frequency_table *freq_table;
 
 #define dprintk(msg...) cpufreq_debug_printk(CPUFREQ_DEBUG_GOVERNOR, "raw", msg)
 
+unsigned int get_max_frequency_table(struct cpufreq_policy *policy)
+{
+	//OBS.: as frequencias comecam do MAIOR para o MENOR. Logo a posicao ZERO do vetor possui a maior frequencia.
+	return freq_table[0].frequency;
+}
+
 unsigned int get_frequency_table_target(struct cpufreq_policy *policy, unsigned int target_freq)
 {
 	unsigned int new_freq;
@@ -97,13 +103,20 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 		 *         cpufreq_governor_raw (lock raw_mutex)
 		 */
 		valid_freq = get_frequency_table_target(policy, freq);
-		if(valid_freq != policy->cur)
-			ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
+		if(valid_freq >= task->cpu_frequency_min)
+		{
+			if(valid_freq != policy->cur)
+				ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
 
-		//Atualizando a frequencia da tarefa para uma frequencia valida.
-		task->cpu_frequency = policy->cur; // (KHz)
+			//Atualizando a frequencia da tarefa para uma frequencia valida.
+			task->cpu_frequency = policy->cur; // (KHz)
 
-		printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u KHz - GOV(%s) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->pid);
+			printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) for cpu %u - %u KHz - GOV(%s) -> PID (%d)\n", freq, policy->cpu, policy->cur, policy->governor->name, task->pid);
+		}
+		else
+		{
+			printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) - OBS.: FREQUENCIA INVALIDA! PID (%d) [FREQ_ALVO(%u KHz) < FREQ_MIN(%u KHz)] \n", freq, task->pid, valid_freq, task->cpu_frequency_min);
+		}
 	}
 
 	mutex_unlock(&raw_mutex);
@@ -184,15 +197,22 @@ static int calc_freq(struct raw_gov_info_struct *info)
 	tempoRestanteProcessamento_ns = info->deadline_tarefa_sinalizada - tick_timer_atual; // ns
 
 	tempoRestanteProcessamento = tempoRestanteProcessamento_ns / 1000000000.0; // UNIDADE AQUI EH: nanosegundo(s) para segundo(s) (10^9).
-	if(tempoRestanteProcessamento <= 0)
-		tempoRestanteProcessamento = 1.0;
-
-	cpu_frequency_target = (info->tarefa_sinalizada->rwcec / tempoRestanteProcessamento) ; // Unidade: Ciclos/segundo (a conversao para segundos foi feita acima 10^9)
-	cpu_frequency_target = cpu_frequency_target / 1000.0; // Unidade: Khz (convertendo para de Hz para KHz)
+	if(tempoRestanteProcessamento > 0)
+	{
+		cpu_frequency_target = (info->tarefa_sinalizada->rwcec / tempoRestanteProcessamento) ; // Unidade: Ciclos/segundo (a conversao para segundos foi feita acima 10^9)
+		cpu_frequency_target = cpu_frequency_target / 1000.0; // Unidade: Khz (convertendo para de Hz para KHz)
+		valid_freq = get_frequency_table_target(info->policy, cpu_frequency_target);
+	}
+	else
+	{
+		/* OBS.:
+		 * QUER DIZER QUE O DEADLINE DA TAREFA FOI VIOLADO... ENTAO EH APLICADO A MAIOR FREQUENCIA DO PROCESSADOR...
+		 * PARA NAO ATRASAR A EXECUCAO DAS DEMAIS TAREFAS.
+		 **/
+		valid_freq = get_max_frequency_table(info->policy);
+	}
 
 	printk("DEBUG:RAWLINSON - calc_freq - RWCEC(%ld) / TRP(%lld ns) ===> TIMER(%llu) ==> DelayMonitor(%llu) \n", info->tarefa_sinalizada->rwcec, tempoRestanteProcessamento_ns, tick_timer_atual, intervalo_tempo_ativacao_monitor);
-
-	valid_freq = get_frequency_table_target(info->policy, cpu_frequency_target);
 	return valid_freq;
 }
 
