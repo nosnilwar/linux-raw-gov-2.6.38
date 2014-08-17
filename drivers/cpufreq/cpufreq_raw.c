@@ -185,23 +185,25 @@ static int calc_freq(struct raw_gov_info_struct *info)
 	struct timespec timespecKernel;
 	double cpu_frequency_target = 0.0;
 	double tempoRestanteProcessamento = 0.0;
-	unsigned long long tempoRestanteProcessamento_ns = 0;
-	unsigned long long tick_timer_atual;
-	unsigned long long intervalo_tempo_ativacao_monitor;
+	long long tempoRestanteProcessamento_ns = 0;
+	long long tick_timer_atual;
+	long long intervalo_tempo_ativacao_monitor;
 	unsigned int valid_freq = 0;
 
 	timespecKernel = current_kernel_time();
 	info->end_timer_delay_monitor = timespecKernel.tv_nsec; //** PEGANDO O TIMER ATUAL DO KERNEL (ns).
 	intervalo_tempo_ativacao_monitor = info->end_timer_delay_monitor - info->start_timer_delay_monitor;
 	tick_timer_atual = info->tick_timer_rtai_ns + intervalo_tempo_ativacao_monitor;
-	tempoRestanteProcessamento_ns = info->deadline_tarefa_sinalizada - tick_timer_atual; // ns
 
+	tempoRestanteProcessamento_ns = info->deadline_tarefa_sinalizada - tick_timer_atual; // ns
 	tempoRestanteProcessamento = tempoRestanteProcessamento_ns / 1000000000.0; // UNIDADE AQUI EH: nanosegundo(s) para segundo(s) (10^9).
-	if(tempoRestanteProcessamento > 0)
+	if(tempoRestanteProcessamento_ns > 0)
 	{
 		cpu_frequency_target = (info->tarefa_sinalizada->rwcec / tempoRestanteProcessamento) ; // Unidade: Ciclos/segundo (a conversao para segundos foi feita acima 10^9)
 		cpu_frequency_target = cpu_frequency_target / 1000.0; // Unidade: Khz (convertendo para de Hz para KHz)
 		valid_freq = get_frequency_table_target(info->policy, cpu_frequency_target);
+
+		printk("DEBUG:RAWLINSON - calc_freq - RWCEC(%ld) / TRP(%lld ns) ===> TIMER(%llu) ==> DelayMonitor(%llu) => FREQ(%u) \n", info->tarefa_sinalizada->rwcec, tempoRestanteProcessamento_ns, tick_timer_atual, intervalo_tempo_ativacao_monitor, valid_freq);
 	}
 	else
 	{
@@ -210,9 +212,9 @@ static int calc_freq(struct raw_gov_info_struct *info)
 		 * PARA NAO ATRASAR A EXECUCAO DAS DEMAIS TAREFAS.
 		 **/
 		valid_freq = get_max_frequency_table(info->policy);
-	}
 
-	printk("DEBUG:RAWLINSON - calc_freq - RWCEC(%ld) / TRP(%lld ns) ===> TIMER(%llu) ==> DelayMonitor(%llu) \n", info->tarefa_sinalizada->rwcec, tempoRestanteProcessamento_ns, tick_timer_atual, intervalo_tempo_ativacao_monitor);
+		printk("DEBUG:RAWLINSON - DEADLINE VIOLADO - calc_freq - RWCEC(%ld) / TRP(%lld ns) ===> TIMER(%llu) ==> DelayMonitor(%llu) => FREQ(%u) \n", info->tarefa_sinalizada->rwcec, tempoRestanteProcessamento_ns, tick_timer_atual, intervalo_tempo_ativacao_monitor, valid_freq);
+	}
 	return valid_freq;
 }
 
