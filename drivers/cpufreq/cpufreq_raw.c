@@ -115,6 +115,12 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 		}
 		else
 		{
+			if(task->cpu_frequency_min != policy->cur)
+				ret = __cpufreq_driver_target(policy, task->cpu_frequency_min, CPUFREQ_RELATION_H);
+
+			//Atualizando a frequencia da tarefa para uma frequencia valida.
+			task->cpu_frequency = policy->cur; // (KHz)
+
 			printk("DEBUG:RAWLINSON - RAW GOVERNOR - set_frequency(%u) - OBS.: FREQUENCIA INVALIDA! PID (%d) [FREQ_ALVO(%u KHz) < FREQ_MIN(%u KHz)] \n", freq, task->pid, valid_freq, task->cpu_frequency_min);
 		}
 	}
