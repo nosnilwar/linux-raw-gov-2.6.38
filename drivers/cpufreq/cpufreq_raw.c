@@ -236,8 +236,12 @@ void raw_gov_work(struct kthread_work *work)
 	{
 		if(info->tarefa_sinalizada->rwcec > 0)
 		{
-			target_freq = calc_freq(info);
-			if(target_freq >= info->tarefa_sinalizada->cpu_frequency_min && target_freq != info->policy->cur)
+			if(target_freq >= info->tarefa_sinalizada->cpu_frequency_min)
+				target_freq = calc_freq(info);
+			else
+				target_freq = info->tarefa_sinalizada->cpu_frequency_min;
+
+			if(target_freq != info->policy->cur)
 			{
 				__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
 				info->tarefa_sinalizada->cpu_frequency = target_freq; // (KHz) Nova frequencia para a tarefa... visando diminuir o tempo de folga da tarefa.
