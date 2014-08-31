@@ -224,6 +224,13 @@ static int calc_freq(struct raw_gov_info_struct *info)
 	return valid_freq;
 }
 
+static void clear_task_monitor(struct raw_gov_info_struct *info)
+{
+	info->tarefa_sinalizada = NULL;
+	info->deadline_tarefa_sinalizada = 0;
+	info->tick_timer_rtai_ns = 0;
+}
+
 void raw_gov_work(struct kthread_work *work)
 {
 	struct raw_gov_info_struct *info;
@@ -253,6 +260,8 @@ void raw_gov_work(struct kthread_work *work)
 
 		info->tarefa_sinalizada->flagReturnPreemption = 0;
 		info->tarefa_sinalizada->flagCheckedRawMonitor = 1;
+
+		clear_task_monitor(info);
 	}
 	mutex_unlock(&info->timer_mutex);
 }
