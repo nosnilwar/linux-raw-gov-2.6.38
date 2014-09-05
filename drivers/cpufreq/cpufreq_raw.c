@@ -105,8 +105,7 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 		valid_freq = get_frequency_table_target(policy, freq);
 		if(valid_freq >= task->cpu_frequency_min)
 		{
-			if(valid_freq != policy->cur)
-				ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
+			ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
 
 			//Atualizando a frequencia da tarefa para uma frequencia valida.
 			task->cpu_frequency = policy->cur; // (KHz)
@@ -115,8 +114,7 @@ static int set_frequency(struct cpufreq_policy *policy, struct task_struct *task
 		}
 		else
 		{
-			if(task->cpu_frequency_min != policy->cur)
-				ret = __cpufreq_driver_target(policy, task->cpu_frequency_min, CPUFREQ_RELATION_H);
+			ret = __cpufreq_driver_target(policy, task->cpu_frequency_min, CPUFREQ_RELATION_H);
 
 			//Atualizando a frequencia da tarefa para uma frequencia valida.
 			task->cpu_frequency = policy->cur; // (KHz)
@@ -140,8 +138,7 @@ static int cpufreq_raw_set(struct cpufreq_policy *policy, unsigned int freq)
 	mutex_lock(&raw_mutex);
 
 	valid_freq = get_frequency_table_target(policy, freq);
-	if(valid_freq != policy->cur)
-		ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
+	ret = __cpufreq_driver_target(policy, valid_freq, CPUFREQ_RELATION_H);
 
 	printk("DEBUG:RAWLINSON - cpufreq_raw_set(%u) for cpu %u, freq %u kHz\n", freq, policy->cpu, policy->cur);
 
@@ -243,15 +240,11 @@ void raw_gov_work(struct kthread_work *work)
 	{
 		if(info->tarefa_sinalizada->rwcec > 0)
 		{
-			if(target_freq >= info->tarefa_sinalizada->cpu_frequency_min)
-				target_freq = calc_freq(info);
-			else
+			target_freq = calc_freq(info);
+			if(target_freq < info->tarefa_sinalizada->cpu_frequency_min)
 				target_freq = info->tarefa_sinalizada->cpu_frequency_min;
 
-			if(target_freq != info->policy->cur)
-			{
-				__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
-			}
+			__cpufreq_driver_target(info->policy, target_freq, CPUFREQ_RELATION_H);
 			info->tarefa_sinalizada->cpu_frequency = target_freq; // (KHz) Nova frequencia para a tarefa... visando diminuir o tempo de folga da tarefa.
 
 			printk("-------------------------------[ RAW MONITOR ]------------------------------\n");
