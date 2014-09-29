@@ -11,11 +11,15 @@
 #include <linux/kernel_stat.h>
 #include <linux/mutex.h>
 #include <linux/tick.h>
+#include <linux/hrtimer.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
 #include <linux/kthread.h>
 
 struct raw_gov_info_struct {
+	cputime64_t prev_cpu_idle;
+	cputime64_t prev_cpu_wall;
+
 	struct cpufreq_policy *policy;
 	struct kthread_worker kraw_worker;
 	struct kthread_work work;
@@ -73,6 +77,30 @@ unsigned int get_frequency_table_target(struct cpufreq_policy *policy, unsigned 
 	printk("DEBUG:RAWLINSON - RAW GOVERNOR - get_frequency_table_target(%u) kHz for cpu %u => NOVA FREQ(%u kHz)\n", target_freq, policy->cpu, new_freq);
 
 	return new_freq;
+}
+
+/**
+ * Obtem a quantidade de tempo em que o CPU se encontra em idle time durante a atuação do RAW Governor.
+ */
+static unsigned long get_raw_cpu_idle_time(struct cpufreq_policy *policy)
+{
+	cputime64_t prev_wall_time;
+	u64 cur_idle_time_us;
+	unsigned long idle_time_us;
+	struct raw_gov_info_struct *info;
+
+	info = &per_cpu(raw_gov_info, policy->cpu);
+
+	mutex_lock(&raw_mutex);
+
+	prev_wall_time = info->prev_cpu_wall;
+	cur_idle_time_us = get_cpu_idle_time_us(policy->cpu, &prev_wall_time);
+	idle_time_us = (unsigned long) cputime64_sub(cur_idle_time_us, info->prev_cpu_idle);
+	printk("DEBUG:RAWLINSON - RAW GOVERNOR - get_raw_cpu_idle_time -> IDLE_TIME (%lu) us\n", idle_time_us);
+
+	mutex_unlock(&raw_mutex);
+
+	return idle_time_us;
 }
 
 /**
@@ -154,8 +182,11 @@ static int wake_up_kworker(struct cpufreq_policy *policy, struct task_struct *ta
 	int ret = -EINVAL;
 	struct timespec timespecKernel;
 	struct raw_gov_info_struct *info;
+	unsigned long cur_idle_time_us;
 
 	info = &per_cpu(raw_gov_info, policy->cpu);
+
+	cur_idle_time_us = get_raw_cpu_idle_time(policy);
 
 	mutex_lock(&info->timer_mutex);
 	if(task && task->pid > 0)
@@ -314,6 +345,7 @@ static int cpufreq_governor_raw(struct cpufreq_policy *policy, unsigned int even
 			for_each_cpu(i, policy->cpus) {
 				affected_info = &per_cpu(raw_gov_info, i);
 				affected_info->policy = policy;
+				affected_info->prev_cpu_idle = get_cpu_idle_time_us(i, &affected_info->prev_cpu_wall);
 			}
 
 			BUG_ON(!policy->cur);
@@ -354,6 +386,7 @@ struct cpufreq_governor cpufreq_gov_raw = {
        .name						= CPUFREQ_CONST_RAW_GOVERNOR_NAME, // Valor => "raw"
        .governor               		= cpufreq_governor_raw,
 	   .store_setspeed		   		= cpufreq_raw_set,
+	   .get_cpu_idle_time 			= get_raw_cpu_idle_time,
 	   .set_frequency 		   		= set_frequency,
 	   .wake_up_kworker 		   	= wake_up_kworker,
        .owner                  		= THIS_MODULE,

@@ -173,6 +173,7 @@ struct cpufreq_governor {
 	int 	(*governor)	(struct cpufreq_policy *policy, unsigned int event);
 	ssize_t	(*show_setspeed)	(struct cpufreq_policy *policy, char *buf);
 	int 	(*store_setspeed)	(struct cpufreq_policy *policy, unsigned int freq);
+	unsigned long (*get_cpu_idle_time)	(struct cpufreq_policy *policy);
 	int		(*set_frequency)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned int freq);
 	int		(*wake_up_kworker)	(struct cpufreq_policy *policy, struct task_struct *task, unsigned long long tick_timer_rtai_ns, unsigned long long deadline_ns);
 	unsigned int max_transition_latency; /* HW must be able to switch to
